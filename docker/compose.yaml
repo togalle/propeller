@@ -1680,8 +1680,8 @@ services:
       - supermq-base-net
     # To use a custom config.toml, uncomment the following line and ensure ./config.toml exists.
     # If you are using environment variables for configuration, leave this commented out.
-    # volumes:
-    #   - ./config.toml:/config.toml
+    volumes:
+      - ./config.toml:/config.toml
 
   proplet:
     image: ghcr.io/absmach/propeller/proplet:${PROP_RELEASE_TAG}
@@ -1712,8 +1712,8 @@ services:
       - supermq-base-net
     # To use a custom config.toml, uncomment the following line and ensure ./config.toml exists.
     # If you are using environment variables for configuration, leave this commented out.
-    # volumes:
-    #   - ./config.toml:/home/proplet/config.toml
+    volumes:
+      - ./config.toml:/home/proplet/config.toml
 
   proxy:
     image: ghcr.io/absmach/propeller/proxy:${PROP_RELEASE_TAG}
@@ -1741,5 +1741,5 @@ services:
       - supermq-base-net
     # To use a custom config.toml, uncomment the following line and ensure ./config.toml exists.
     # If you are using environment variables for configuration, leave this commented out.
-    # volumes:
-    #   - ./config.toml:/config.toml
+    volumes:
+      - ./config.toml:/config.toml
