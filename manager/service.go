@@ -520,6 +520,20 @@ func (svc *service) handlePropletMetrics(ctx context.Context, msg map[string]any
 
 	if cpuData, ok := msg["cpu_metrics"].(map[string]any); ok {
 		propletMetrics.CPU = svc.parseCPUMetrics(cpuData)
+
+		p, err := svc.GetProplet(ctx, propletID)
+		if err != nil {
+			svc.logger.WarnContext(ctx, "failed to get proplet", "error", err, "proplet_id", propletID)
+			return err
+		}
+
+		if val, ok := cpuData["percent"].(float64); ok {
+			p.CPUPercent = val
+		}
+		if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
+			svc.logger.WarnContext(ctx, "failed to update proplet", "error", err, "proplet_id", propletID)
+			return err
+		}
 	}
 
 	if memData, ok := msg["memory_metrics"].(map[string]any); ok {
