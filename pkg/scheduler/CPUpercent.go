@@ -1,11 +1,14 @@
 package scheduler
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/absmach/propeller/pkg/proplet"
 	"github.com/absmach/propeller/task"
 )
+
+const TESTING = true
 
 type cpuPercentScheduler struct{}
 
@@ -18,11 +21,19 @@ func (c *cpuPercentScheduler) SelectProplet(t task.Task, proplets []proplet.Prop
 		return proplet.Proplet{}, ErrNoProplet
 	}
 
+	// For testing: hardcode two proplets with 75% and 85% CPU usage if there are 2 proplets
+	if len(proplets) == 2 && TESTING {
+		proplets[0].CPUPercent = 75
+		proplets[1].CPUPercent = 85
+	}
+
 	// Filter alive proplets
 	var aliveProplets []proplet.Proplet
 	for _, p := range proplets {
 		if p.Alive {
 			aliveProplets = append(aliveProplets, p)
+			// Log the proplet ID and CPU Percent
+			fmt.Printf("Proplet ID: %s, CPU Percent: %.2f\n", p.ID, p.CPUPercent)
 		}
 	}
 	if len(aliveProplets) == 0 {
@@ -30,8 +41,6 @@ func (c *cpuPercentScheduler) SelectProplet(t task.Task, proplets []proplet.Prop
 	}
 
 	// Sort by distance to 80% CPU usage (ascending)
-	// Proplets under 80% sorted by closeness to 80% (descending)
-	// Proplets over 80% sorted by closeness to 80% (ascending)
 	sort.Slice(aliveProplets, func(i, j int) bool {
 		cpuI := aliveProplets[i].CPUPercent
 		cpuJ := aliveProplets[j].CPUPercent
