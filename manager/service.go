@@ -123,6 +123,10 @@ func (svc *service) GetTask(ctx context.Context, taskID string) (task.Task, erro
 		return task.Task{}, pkgerrors.ErrInvalidData
 	}
 
+	if t.File != nil {
+		t.File = nil
+	}
+
 	return t, nil
 }
 
@@ -168,6 +172,10 @@ func (svc *service) UpdateTask(ctx context.Context, t task.Task) (task.Task, err
 
 	if err := svc.tasksDB.Update(ctx, dbT.ID, dbT); err != nil {
 		return task.Task{}, err
+	}
+
+	if t.File != nil {
+		dbT.File = nil
 	}
 
 	return dbT, nil
