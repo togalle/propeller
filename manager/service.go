@@ -123,9 +123,6 @@ func (svc *service) GetTask(ctx context.Context, taskID string) (task.Task, erro
 		return task.Task{}, pkgerrors.ErrInvalidData
 	}
 
-	if t.File != nil {
-		t.File = nil
-	}
 
 	return t, nil
 }
