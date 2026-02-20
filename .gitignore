@@ -16,3 +16,8 @@ embed-proplet/tools
 embed-proplet/zephyr
 
 .proplet_locks
+.python-version
+uv.lock
+.vscode
+pyproject.toml
+tmux.sh
