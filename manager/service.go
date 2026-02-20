@@ -29,14 +29,15 @@ var (
 )
 
 type service struct {
-	tasksDB       storage.Storage
-	propletsDB    storage.Storage
-	taskPropletDB storage.Storage
-	metricsDB     storage.Storage
-	scheduler     scheduler.Scheduler
-	baseTopic     string
-	pubsub        mqtt.PubSub
-	logger        *slog.Logger
+	tasksDB           storage.Storage
+	propletsDB        storage.Storage
+	taskPropletDB     storage.Storage
+	metricsDB         storage.Storage
+	scheduler         scheduler.Scheduler
+	schedulerRegistry *scheduler.SchedulerRegistry
+	baseTopic         string
+	pubsub            mqtt.PubSub
+	logger            *slog.Logger
 }
 
 func NewService(
@@ -45,14 +46,15 @@ func NewService(
 	domainID, channelID string, logger *slog.Logger,
 ) Service {
 	return &service{
-		tasksDB:       tasksDB,
-		propletsDB:    propletsDB,
-		taskPropletDB: taskPropletDB,
-		metricsDB:     metricsDB,
-		scheduler:     s,
-		baseTopic:     fmt.Sprintf(baseTopic, domainID, channelID),
-		pubsub:        pubsub,
-		logger:        logger,
+		tasksDB:           tasksDB,
+		propletsDB:        propletsDB,
+		taskPropletDB:     taskPropletDB,
+		metricsDB:         metricsDB,
+		scheduler:         s,
+		schedulerRegistry: scheduler.NewSchedulerRegistry(),
+		baseTopic:         fmt.Sprintf(baseTopic, domainID, channelID),
+		pubsub:            pubsub,
+		logger:            logger,
 	}
 }
 
@@ -122,7 +124,6 @@ func (svc *service) GetTask(ctx context.Context, taskID string) (task.Task, erro
 	if !ok {
 		return task.Task{}, pkgerrors.ErrInvalidData
 	}
-
 
 	return t, nil
 }
@@ -203,20 +204,40 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	}
 
 	var p proplet.Proplet
-	switch t.PropletID {
-	case "":
-		p, err = svc.SelectProplet(ctx, t)
+	if t.Scheduler != "" {
+		// Use the scheduler specified in the task
+		customScheduler, err := svc.schedulerRegistry.Get(t.Scheduler)
+		if err != nil {
+			return fmt.Errorf("failed to get scheduler %s: %w", t.Scheduler, err)
+		}
+
+		proplets, err := svc.ListProplets(ctx, defOffset, defLimit)
 		if err != nil {
 			return err
 		}
-		svc.logger.InfoContext(ctx, "selected proplet for task", "proplet_id", p.ID)
-	default:
-		p, err = svc.GetProplet(ctx, t.PropletID)
+
+		p, err = customScheduler.SelectProplet(t, proplets.Proplets)
 		if err != nil {
 			return err
 		}
-		if !p.Alive {
-			return fmt.Errorf("specified proplet %s is not alive", t.PropletID)
+		svc.logger.InfoContext(ctx, "selected proplet using custom scheduler",
+			"scheduler", t.Scheduler, "proplet_id", p.ID)
+	} else {
+		switch t.PropletID {
+		case "":
+			p, err = svc.SelectProplet(ctx, t)
+			if err != nil {
+				return err
+			}
+			svc.logger.InfoContext(ctx, "selected proplet for task", "proplet_id", p.ID)
+		default:
+			p, err = svc.GetProplet(ctx, t.PropletID)
+			if err != nil {
+				return err
+			}
+			if !p.Alive {
+				return fmt.Errorf("specified proplet %s is not alive", t.PropletID)
+			}
 		}
 	}
 

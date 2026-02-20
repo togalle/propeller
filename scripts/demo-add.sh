@@ -2,7 +2,7 @@
 
 TASK_RESPONSE=$(curl -s -X POST "http://localhost:7070/tasks" \
     -H "Content-Type: application/json" \
-    -d '{"name": "add", "inputs": [10, 20]}')
+    -d '{"name": "add", "inputs": [10, 20], "scheduler": "roundrobin"}')
 
 TASK_ID=$(echo "$TASK_RESPONSE" | jq -r '.id')
 
