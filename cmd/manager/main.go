@@ -133,6 +133,10 @@ func main() {
 	counter, latency := prometheus.MakeMetrics(svcName, "api")
 	svc = middleware.Metrics(counter, latency, svc)
 
+	if err := os.Remove(".proplet_locks"); err != nil && !os.IsNotExist(err) {
+		logger.Error("failed to remove proplet locks file", slog.String("error", err.Error()))
+	}
+
 	if err := svc.Subscribe(ctx); err != nil {
 		logger.Error("failed to subscribe to manager channel", slog.String("error", err.Error()))
 
