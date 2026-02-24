@@ -188,6 +188,10 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
+
+	t.UpdatedAt = time.Now()
+	t.StartTime = time.Now()
+
 	payload := map[string]any{
 		"id":                 t.ID,
 		"name":               t.Name,
@@ -242,6 +246,7 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	}
 
 	t.PropletID = p.ID
+	t.SchedulerTime = time.Now()
 
 	if err := svc.taskPropletDB.Create(ctx, taskID, p.ID); err != nil {
 		return err
@@ -258,8 +263,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 	}
 
 	t.State = task.Running
-	t.UpdatedAt = time.Now()
-	t.StartTime = time.Now()
 	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
 		return err
 	}
@@ -485,6 +488,11 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 	t.Results = msg["results"]
 	t.State = task.Completed
 	t.UpdatedAt = time.Now()
+	svc.logger.InfoContext(ctx, "receive time", msg["receive_time"])
+	t.PropletArriveTime, err = time.Parse(time.RFC3339, msg["receive_time"].(string))
+	if err != nil {
+		return fmt.Errorf("invalid receive_time format: %w", err)
+	}
 	t.FinishTime = time.Now()
 
 	if errMsg, ok := msg["error"].(string); ok && errMsg != "" {

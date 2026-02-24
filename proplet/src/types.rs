@@ -153,6 +153,7 @@ pub struct ResultMessage {
     pub task_id: String,
     pub proplet_id: String,
     pub results: String,
+    pub receive_time: String,
     pub error: Option<String>,
 }
 

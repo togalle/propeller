@@ -383,6 +383,8 @@ impl PropletService {
         req.validate()?;
 
         info!("Received start command for task: {}", req.id);
+        let receive_time: String =
+            chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339();
 
         #[cfg(feature = "tee")]
         let runtime = if req.encrypted {
@@ -613,6 +615,7 @@ impl PropletService {
                 task_id: task_id.clone(),
                 proplet_id,
                 results: result_str,
+                receive_time: receive_time,
                 error,
             };
 
@@ -773,6 +776,7 @@ impl PropletService {
             task_id: task_id.to_string(),
             proplet_id,
             results: result_str,
+            receive_time: chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339(),
             error,
         };
 

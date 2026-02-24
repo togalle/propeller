@@ -50,6 +50,9 @@ type Task struct {
 	Error             string                     `json:"error,omitempty"`
 	MonitoringProfile *proplet.MonitoringProfile `json:"monitoring_profile,omitempty"`
 	StartTime         time.Time                  `json:"start_time"`
+	SchedulerTime     time.Time                  `json:"scheduler_time"`
+	PropletArriveTime time.Time                  `json:"proplet_arrive_time"`
+	ExecutionTime     time.Time                  `json:"execution_time"`
 	FinishTime        time.Time                  `json:"finish_time"`
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
