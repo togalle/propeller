@@ -241,6 +241,8 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 		}
 	}
 
+	t.PropletID = p.ID
+
 	if err := svc.taskPropletDB.Create(ctx, taskID, p.ID); err != nil {
 		return err
 	}
