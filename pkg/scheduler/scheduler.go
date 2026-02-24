@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrNoProplet       = errors.New("no proplet was provided")
-	ErrDeadProplers    = errors.New("all proplets are dead")
+	ErrNoProplet        = errors.New("no proplet was provided")
+	ErrDeadProplers     = errors.New("all proplets are dead")
 	ErrUnknownScheduler = errors.New("unknown scheduler")
 )
 
@@ -20,34 +20,34 @@ type Scheduler interface {
 
 // SchedulerRegistry manages available schedulers
 type SchedulerRegistry struct {
-	schedulers map[string]func() Scheduler
+	schedulers map[string]Scheduler
 }
 
 // NewSchedulerRegistry creates a new scheduler registry with default schedulers
 func NewSchedulerRegistry() *SchedulerRegistry {
 	registry := &SchedulerRegistry{
-		schedulers: make(map[string]func() Scheduler),
+		schedulers: make(map[string]Scheduler),
 	}
 
-	// Register default schedulers
-	registry.Register("roundrobin", func() Scheduler { return NewRoundRobin() })
-	registry.Register("cpupercent", func() Scheduler { return NewCPUPercent() })
+	// Create and cache scheduler instances
+	registry.schedulers["roundrobin"] = NewRoundRobin()
+	registry.schedulers["cpupercent"] = NewCPUPercent()
 
 	return registry
 }
 
-// Register adds a scheduler factory to the registry
-func (r *SchedulerRegistry) Register(name string, factory func() Scheduler) {
-	r.schedulers[name] = factory
+// Register adds a scheduler instance to the registry
+func (r *SchedulerRegistry) Register(name string, scheduler Scheduler) {
+	r.schedulers[name] = scheduler
 }
 
-// Get creates a scheduler instance by name
+// Get returns a cached scheduler instance by name
 func (r *SchedulerRegistry) Get(name string) (Scheduler, error) {
-	factory, exists := r.schedulers[name]
+	scheduler, exists := r.schedulers[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownScheduler, name)
 	}
-	return factory(), nil
+	return scheduler, nil
 }
 
 // List returns all available scheduler names
