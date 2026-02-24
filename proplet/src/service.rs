@@ -493,6 +493,11 @@ impl PropletService {
             None
         };
 
+        // Send metrics message before starting the task
+        if let Err(e) = self.publish_proplet_metrics().await {
+            error!("Failed to publish proplet metrics: {}", e);
+        }
+
         let export_metrics = monitoring_profile.enabled && monitoring_profile.export_to_mqtt;
 
         tokio::spawn(async move {
@@ -623,6 +628,11 @@ impl PropletService {
 
             running_tasks.lock().await.remove(&task_id);
         });
+
+        // Send metrics message after finishing the task
+        if let Err(e) = self.publish_proplet_metrics().await {
+            error!("Failed to publish proplet metrics: {}", e);
+        }
 
         Ok(())
     }
