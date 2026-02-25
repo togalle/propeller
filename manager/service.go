@@ -585,9 +585,8 @@ func (svc *service) handlePropletMetrics(ctx context.Context, msg map[string]any
 			return err
 		}
 
-		if val, ok := cpuData["percent"].(float64); ok {
-			p.CPUPercent = val
-		}
+		p.LatestMetrics = propletMetrics.CPU
+
 		if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
 			svc.logger.WarnContext(ctx, "failed to update proplet", "error", err, "proplet_id", propletID)
 			return err
