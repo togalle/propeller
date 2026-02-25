@@ -67,7 +67,7 @@ impl Default for PropletConfig {
             mqtt_inflight: 10,
             mqtt_request_channel_capacity: 128,
             liveliness_interval: 10,
-            metrics_interval: 10,
+            metrics_interval: 1,
             domain_id: String::new(),
             channel_id: String::new(),
             client_id: String::new(),
