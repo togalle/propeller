@@ -31,7 +31,7 @@ func NewSchedulerRegistry() *SchedulerRegistry {
 
 	// Create and cache scheduler instances
 	registry.schedulers["roundrobin"] = NewRoundRobin()
-	registry.schedulers["cpupercent"] = NewCPUPercent()
+	registry.schedulers["cpupercent"] = NewStatic()
 
 	return registry
 }
