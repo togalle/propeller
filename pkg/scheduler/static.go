@@ -16,6 +16,7 @@ const WEIGHT_CPU_PERCENT = 1
 const WEIGHT_CPU_USER_SECONDS = 0.5
 const WEIGHT_CPU_SYSTEM_SECONDS = 0.5
 const WEIGHT_DISTANCE = 0
+const WEIGHT_TIMEZONE_DIFFERENCE = 0
 const WEIGHT_RADIATION = 0
 const MAX_SOLAR_IRRADIANCE = 1361.0
 const OPENMETEO = "https://satellite-api.open-meteo.com/v1/archive?latitude=%f&longitude=%f&hourly=shortwave_radiation_instant&models=satellite_radiation_seamless&timezone=auto&temporal_resolution=native"
@@ -68,10 +69,11 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 				propletCoords = testPropletCoords
 			}
 			scores[p.ID] = map[string]float64{
-				"cpu_percent":        scoreCPUPercent(p.LatestMetrics.Percent),
-				"cpu_user_seconds":   1.0 / (1.0 + p.LatestMetrics.UserSeconds),
-				"cpu_system_seconds": 1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
-				"distance":           1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
+				"cpu_percent":         scoreCPUPercent(p.LatestMetrics.Percent),
+				"cpu_user_seconds":    1.0 / (1.0 + p.LatestMetrics.UserSeconds),
+				"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
+				"timezone_difference": getTZScore(p.TimezoneOffsetSec),
+				"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
 			}
 		}
 	}
@@ -101,16 +103,18 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 	var bestProplet *proplet.Proplet
 	bestScore := float64(-1)
 	weights := map[string]float64{
-		"cpu_percent":        WEIGHT_CPU_PERCENT,
-		"cpu_user_seconds":   WEIGHT_CPU_USER_SECONDS,
-		"cpu_system_seconds": WEIGHT_CPU_SYSTEM_SECONDS,
-		"distance":           WEIGHT_DISTANCE,
-		"radiation":          WEIGHT_RADIATION,
+		"cpu_percent":         WEIGHT_CPU_PERCENT,
+		"cpu_user_seconds":    WEIGHT_CPU_USER_SECONDS,
+		"cpu_system_seconds":  WEIGHT_CPU_SYSTEM_SECONDS,
+		"distance":            WEIGHT_DISTANCE,
+		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
+		"radiation":           WEIGHT_RADIATION,
 	}
 
 	for _, p := range aliveProplets {
 		var score float64
 		for metric, weight := range weights {
+			fmt.Println("score for", metric, " is ", scores[p.ID][metric])
 			score += scores[p.ID][metric] * weight
 		}
 		if score > bestScore {
@@ -132,8 +136,24 @@ func scoreCPUPercent(cpu float64) float64 {
 	return (100 - cpu) / 100
 }
 
+func getTZScore(propletOffsetSecs int) float64 {
+	_, localOffset := time.Now().Zone()
+
+	// Calculate absolute difference
+	diff := float64(localOffset - propletOffsetSecs)
+	if diff < 0 {
+		diff = -diff
+	}
+
+	// Adjust for wrap-around (max distance is 12 hours / 43200s)
+	if diff > 43200 {
+		diff = 86400 - diff
+	}
+
+	return 1 - (diff / 43200)
+}
+
 func (c *staticScheduler) fetchSolarRadiations(proplets map[string][]float64) error {
-	fmt.Println("Fetching data...")
 	for id, coords := range proplets {
 		url := fmt.Sprintf(OPENMETEO, coords[0], coords[1])
 
@@ -171,7 +191,6 @@ func (c *staticScheduler) fetchSolarRadiations(proplets map[string][]float64) er
 		if !found {
 			return fmt.Errorf("no non-null radiation values found for proplet %s", id)
 		}
-		fmt.Println("Last value found:", lastValue)
 
 		scaled := lastValue / MAX_SOLAR_IRRADIANCE
 		if scaled < 0 {

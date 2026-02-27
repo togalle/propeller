@@ -5,6 +5,7 @@ use crate::mqtt::{build_topic, MqttMessage, PubSub};
 use crate::runtime::{Runtime, RuntimeContext, StartConfig};
 use crate::types::*;
 use anyhow::Result;
+use chrono::Local;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -214,6 +215,7 @@ impl PropletService {
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
             coordinates: self.config.coordinates.clone(),
+            timezone_offset_sec: Local::now().offset().local_minus_utc(),
         };
 
         let topic = build_topic(
@@ -239,6 +241,7 @@ impl PropletService {
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
             coordinates: self.config.coordinates.clone(),
+            timezone_offset_sec: Local::now().offset().local_minus_utc(),
         };
 
         let topic = build_topic(

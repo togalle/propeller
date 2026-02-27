@@ -418,10 +418,17 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]any
 	}
 
 	coords, _ := msg["coordinates"].([]float64)
+	svc.logger.InfoContext(ctx, "body: ", msg)
+	offsetFloat, ok := msg["timezone_offset_sec"].(float64)
+	if !ok {
+		return errors.New("timezone offset not found")
+	}
+	timezone_offset_sec := int(offsetFloat)
 	p := proplet.Proplet{
-		ID:          propletID,
-		Name:        namegen.Generate(),
-		Coordinates: coords,
+		ID:                propletID,
+		Name:              namegen.Generate(),
+		Coordinates:       coords,
+		TimezoneOffsetSec: timezone_offset_sec,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err
@@ -490,7 +497,6 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 	t.Results = msg["results"]
 	t.State = task.Completed
 	t.UpdatedAt = time.Now()
-	svc.logger.InfoContext(ctx, "receive time", msg["receive_time"])
 	t.PropletArriveTime, err = time.Parse(time.RFC3339, msg["receive_time"].(string))
 	if err != nil {
 		return fmt.Errorf("invalid receive_time format: %w", err)
