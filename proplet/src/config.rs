@@ -20,6 +20,7 @@ pub struct PropletFileConfig {
     pub client_id: String,
     pub client_key: String,
     pub channel_id: String,
+    pub coordinates: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +43,7 @@ pub struct PropletConfig {
     pub k8s_namespace: Option<String>,
     pub external_wasm_runtime: Option<String>,
     pub enable_monitoring: bool,
+    pub coordinates: Option<(f64, f64)>,
     #[cfg(feature = "tee")]
     pub tee_enabled: bool,
     #[cfg(feature = "tee")]
@@ -75,6 +77,7 @@ impl Default for PropletConfig {
             k8s_namespace: None,
             external_wasm_runtime: None,
             enable_monitoring: true,
+            coordinates: None,
             #[cfg(feature = "tee")]
             tee_enabled: false,
             #[cfg(feature = "tee")]
@@ -106,6 +109,7 @@ impl PropletConfig {
             config.channel_id = file_config.channel_id;
             config.client_id = file_config.client_id;
             config.client_key = file_config.client_key;
+            config.coordinates = file_config.coordinates;
         }
 
         #[cfg(feature = "tee")]

@@ -24,14 +24,14 @@ type SchedulerRegistry struct {
 }
 
 // NewSchedulerRegistry creates a new scheduler registry with default schedulers
-func NewSchedulerRegistry() *SchedulerRegistry {
+func NewSchedulerRegistry(coordinates []float64) *SchedulerRegistry {
 	registry := &SchedulerRegistry{
 		schedulers: make(map[string]Scheduler),
 	}
 
 	// Create and cache scheduler instances
 	registry.schedulers["roundrobin"] = NewRoundRobin()
-	registry.schedulers["static"] = NewStatic()
+	registry.schedulers["static"] = NewStatic(coordinates)
 
 	return registry
 }

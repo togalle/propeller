@@ -213,6 +213,7 @@ impl PropletService {
                 .k8s_namespace
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
+            coordinates: self.config.coordinates.clone(),
         };
 
         let topic = build_topic(
@@ -237,6 +238,7 @@ impl PropletService {
                 .k8s_namespace
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
+            coordinates: self.config.coordinates.clone(),
         };
 
         let topic = build_topic(

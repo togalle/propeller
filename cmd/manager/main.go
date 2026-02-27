@@ -44,6 +44,7 @@ type config struct {
 	ChannelID   string        `env:"MANAGER_CHANNEL_ID"`
 	ClientID    string        `env:"MANAGER_CLIENT_ID"`
 	ClientKey   string        `env:"MANAGER_CLIENT_KEY"`
+	Coordinates []float64     `env:"MANAGER_COORDINATES"`
 	Server      server.Config
 	OTELURL     url.URL `env:"MANAGER_OTEL_URL"`
 	TraceRatio  float64 `env:"MANAGER_TRACE_RATIO" envDefault:"0"`
@@ -74,6 +75,7 @@ func main() {
 			cfg.ClientID = conf.Manager.ClientID
 			cfg.ClientKey = conf.Manager.ClientKey
 			cfg.ChannelID = conf.Manager.ChannelID
+			cfg.Coordinates = conf.Manager.Coordinates
 		default:
 			log.Fatalf("failed to load TOML configuration: %s", err.Error())
 		}
@@ -125,6 +127,7 @@ func main() {
 		mqttPubSub,
 		cfg.DomainID,
 		cfg.ChannelID,
+		cfg.Coordinates,
 		logger,
 	)
 	svc = middleware.Logging(logger, svc)

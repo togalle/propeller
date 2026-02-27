@@ -146,6 +146,7 @@ pub struct LivelinessMessage {
 pub struct DiscoveryMessage {
     pub proplet_id: String,
     pub namespace: String,
+    pub coordinates: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -572,6 +573,7 @@ mod tests {
         let msg = DiscoveryMessage {
             proplet_id: "proplet-456".to_string(),
             namespace: "prod".to_string(),
+            coordinates: Some((51.05, 3.73)),
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -579,6 +581,7 @@ mod tests {
 
         assert_eq!(deserialized.proplet_id, "proplet-456");
         assert_eq!(deserialized.namespace, "prod");
+        assert_eq!(deserialized.coordinates, Some((51.05, 3.73)));
     }
 
     #[test]
@@ -587,6 +590,11 @@ mod tests {
             task_id: "task-result-1".to_string(),
             proplet_id: Uuid::new_v4().to_string(),
             results: String::from("hello world"),
+            receive_time: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_string(),
             error: None,
         };
 
@@ -604,6 +612,11 @@ mod tests {
             task_id: "task-result-2".to_string(),
             proplet_id: Uuid::new_v4().to_string(),
             results: String::new(),
+            receive_time: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .to_string(),
             error: Some("Execution failed".to_string()),
         };
 

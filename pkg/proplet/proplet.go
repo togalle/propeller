@@ -13,6 +13,7 @@ type Proplet struct {
 	Alive         bool        `json:"alive"`
 	AliveHistory  []time.Time `json:"alive_history"`
 	LatestMetrics CPUMetrics  `json:"latest_metrics"`
+	Coordinates   []float64   `json:"coordinates,omitempty"`
 }
 
 func (p *Proplet) SetAlive() {

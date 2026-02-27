@@ -43,7 +43,7 @@ type service struct {
 func NewService(
 	tasksDB, propletsDB, taskPropletDB, metricsDB storage.Storage,
 	s scheduler.Scheduler, pubsub mqtt.PubSub,
-	domainID, channelID string, logger *slog.Logger,
+	domainID, channelID string, coordinates []float64, logger *slog.Logger,
 ) Service {
 	return &service{
 		tasksDB:           tasksDB,
@@ -51,7 +51,7 @@ func NewService(
 		taskPropletDB:     taskPropletDB,
 		metricsDB:         metricsDB,
 		scheduler:         s,
-		schedulerRegistry: scheduler.NewSchedulerRegistry(),
+		schedulerRegistry: scheduler.NewSchedulerRegistry(coordinates),
 		baseTopic:         fmt.Sprintf(baseTopic, domainID, channelID),
 		pubsub:            pubsub,
 		logger:            logger,
@@ -417,9 +417,11 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]any
 		return errors.New("proplet id is empty")
 	}
 
+	coords, _ := msg["coordinates"].([]float64)
 	p := proplet.Proplet{
-		ID:   propletID,
-		Name: namegen.Generate(),
+		ID:          propletID,
+		Name:        namegen.Generate(),
+		Coordinates: coords,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err
