@@ -418,17 +418,20 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]any
 	}
 
 	coords, _ := msg["coordinates"].([]float64)
-	svc.logger.InfoContext(ctx, "body: ", msg)
 	offsetFloat, ok := msg["timezone_offset_sec"].(float64)
 	if !ok {
 		return errors.New("timezone offset not found")
 	}
 	timezone_offset_sec := int(offsetFloat)
+
+	power_score, _ := msg["power_score"].(float64)
+
 	p := proplet.Proplet{
 		ID:                propletID,
 		Name:              namegen.Generate(),
 		Coordinates:       coords,
 		TimezoneOffsetSec: timezone_offset_sec,
+		PowerScore:        power_score,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err

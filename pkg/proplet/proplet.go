@@ -15,6 +15,7 @@ type Proplet struct {
 	LatestMetrics     CPUMetrics  `json:"latest_metrics"`
 	TimezoneOffsetSec int         `json:"timezone_offset_sec"`
 	Coordinates       []float64   `json:"coordinates,omitempty"`
+	PowerScore        float64     `json:"float64,omitempty"`
 }
 
 func (p *Proplet) SetAlive() {

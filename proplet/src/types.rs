@@ -148,6 +148,7 @@ pub struct DiscoveryMessage {
     pub namespace: String,
     pub coordinates: Option<(f64, f64)>,
     pub timezone_offset_sec: i32,
+    pub power_score: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

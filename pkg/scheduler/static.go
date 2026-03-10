@@ -18,6 +18,7 @@ const WEIGHT_CPU_SYSTEM_SECONDS = 0.5
 const WEIGHT_DISTANCE = 0
 const WEIGHT_TIMEZONE_DIFFERENCE = 0
 const WEIGHT_RADIATION = 0
+const WEIGHT_POWER_SCORE = 0
 const MAX_SOLAR_IRRADIANCE = 1361.0
 const OPENMETEO = "https://satellite-api.open-meteo.com/v1/archive?latitude=%f&longitude=%f&hourly=shortwave_radiation_instant&models=satellite_radiation_seamless&timezone=auto&temporal_resolution=native"
 
@@ -74,6 +75,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 				"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
 				"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 				"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
+				"power_score":         p.PowerScore,
 			}
 		}
 	}
@@ -109,6 +111,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 		"distance":            WEIGHT_DISTANCE,
 		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
 		"radiation":           WEIGHT_RADIATION,
+		"power_score":         WEIGHT_POWER_SCORE,
 	}
 
 	for _, p := range aliveProplets {

@@ -44,6 +44,7 @@ pub struct PropletConfig {
     pub external_wasm_runtime: Option<String>,
     pub enable_monitoring: bool,
     pub coordinates: Option<(f64, f64)>,
+    pub power_score: Option<f64>,
     #[cfg(feature = "tee")]
     pub tee_enabled: bool,
     #[cfg(feature = "tee")]
@@ -78,6 +79,7 @@ impl Default for PropletConfig {
             external_wasm_runtime: None,
             enable_monitoring: true,
             coordinates: None,
+            power_score: None,
             #[cfg(feature = "tee")]
             tee_enabled: false,
             #[cfg(feature = "tee")]
@@ -104,7 +106,14 @@ impl PropletConfig {
             let config_path =
                 env::var("PROPLET_CONFIG_FILE").unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
 
-            let file_config = Self::find_and_lock_config(&config_path)?;
+            let args: Vec<String> = std::env::args().collect();
+            let profile_name = args
+                .iter()
+                .zip(args.iter().skip(1))
+                .find(|(arg, _)| arg == &"--profile" || arg == &"--name")
+                .map(|(_, value)| value.clone());
+
+            let file_config = Self::find_and_lock_config(&config_path, profile_name)?;
             config.domain_id = file_config.domain_id;
             config.channel_id = file_config.channel_id;
             config.client_id = file_config.client_id;
@@ -129,6 +138,7 @@ impl PropletConfig {
     /// Find an available proplet config section and lock it
     fn find_and_lock_config(
         config_path: &str,
+        profile_name: Option<String>,
     ) -> Result<PropletFileConfig, Box<dyn std::error::Error>> {
         let contents = fs::read_to_string(config_path)?;
         let config: HashMap<String, toml::Value> = toml::from_str(&contents)?;
@@ -148,6 +158,30 @@ impl PropletConfig {
         } else {
             HashMap::new()
         };
+
+        if let Some(profile) = profile_name {
+            // If profile name is not in proplet sections, return error
+            if !proplet_sections.contains(&profile) {
+                return Err(format!("Profile '{}' not found in config file", profile).into());
+            }
+            proplet_sections.retain(|s| s == &profile);
+
+            // If profile is already locked, return error
+            if locks.contains_key(&profile) {
+                return Err(format!(
+                    "Profile '{}' is already in use by another instance",
+                    profile
+                )
+                .into());
+            }
+
+            // If profile is specified and available, lock it and return
+            let section_value = config.get(&profile).ok_or("Section not found")?;
+            let proplet_config: PropletFileConfig = section_value.clone().try_into()?;
+            locks.insert(profile.clone(), proplet_config.client_id.clone());
+            fs::write(DEFAULT_LOCK_PATH, serde_json::to_string_pretty(&locks)?)?;
+            return Ok(proplet_config);
+        }
 
         // Find first available section
         for section in proplet_sections {
