@@ -43,7 +43,7 @@ type service struct {
 func NewService(
 	tasksDB, propletsDB, taskPropletDB, metricsDB storage.Storage,
 	s scheduler.Scheduler, pubsub mqtt.PubSub,
-	domainID, channelID string, logger *slog.Logger,
+	domainID, channelID string, coordinates []float64, logger *slog.Logger,
 ) Service {
 	return &service{
 		tasksDB:           tasksDB,
@@ -51,7 +51,7 @@ func NewService(
 		taskPropletDB:     taskPropletDB,
 		metricsDB:         metricsDB,
 		scheduler:         s,
-		schedulerRegistry: scheduler.NewSchedulerRegistry(),
+		schedulerRegistry: scheduler.NewSchedulerRegistry(coordinates),
 		baseTopic:         fmt.Sprintf(baseTopic, domainID, channelID),
 		pubsub:            pubsub,
 		logger:            logger,
@@ -417,9 +417,21 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]any
 		return errors.New("proplet id is empty")
 	}
 
+	coords, _ := msg["coordinates"].([]float64)
+	offsetFloat, ok := msg["timezone_offset_sec"].(float64)
+	if !ok {
+		return errors.New("timezone offset not found")
+	}
+	timezone_offset_sec := int(offsetFloat)
+
+	power_score, _ := msg["power_score"].(float64)
+
 	p := proplet.Proplet{
-		ID:   propletID,
-		Name: namegen.Generate(),
+		ID:                propletID,
+		Name:              namegen.Generate(),
+		Coordinates:       coords,
+		TimezoneOffsetSec: timezone_offset_sec,
+		PowerScore:        power_score,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err
@@ -488,7 +500,6 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 	t.Results = msg["results"]
 	t.State = task.Completed
 	t.UpdatedAt = time.Now()
-	svc.logger.InfoContext(ctx, "receive time", msg["receive_time"])
 	t.PropletArriveTime, err = time.Parse(time.RFC3339, msg["receive_time"].(string))
 	if err != nil {
 		return fmt.Errorf("invalid receive_time format: %w", err)
@@ -585,9 +596,8 @@ func (svc *service) handlePropletMetrics(ctx context.Context, msg map[string]any
 			return err
 		}
 
-		if val, ok := cpuData["percent"].(float64); ok {
-			p.CPUPercent = val
-		}
+		p.LatestMetrics = propletMetrics.CPU
+
 		if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
 			svc.logger.WarnContext(ctx, "failed to update proplet", "error", err, "proplet_id", propletID)
 			return err

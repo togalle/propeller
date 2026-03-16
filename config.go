@@ -14,10 +14,11 @@ type Config struct {
 }
 
 type ManagerConfig struct {
-	DomainID  string `toml:"domain_id"`
-	ClientID  string `toml:"client_id"`
-	ClientKey string `toml:"client_key"`
-	ChannelID string `toml:"channel_id"`
+	DomainID    string    `toml:"domain_id"`
+	ClientID    string    `toml:"client_id"`
+	ClientKey   string    `toml:"client_key"`
+	ChannelID   string    `toml:"channel_id"`
+	Coordinates []float64 `toml:"coordinates"`
 }
 
 type PropletConfig struct {

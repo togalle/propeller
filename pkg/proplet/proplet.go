@@ -7,13 +7,15 @@ import (
 const aliveTimeout = 10 * time.Second
 
 type Proplet struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	TaskCount    uint64      `json:"task_count"`
-	Alive        bool        `json:"alive"`
-	AliveHistory []time.Time `json:"alive_history"`
-	CPUPercent   float64     `json:"cpu_percent"`
-	// LatestMetrics CPUMetrics  `json:"latest_metrics"`
+	ID                string      `json:"id"`
+	Name              string      `json:"name"`
+	TaskCount         uint64      `json:"task_count"`
+	Alive             bool        `json:"alive"`
+	AliveHistory      []time.Time `json:"alive_history"`
+	LatestMetrics     CPUMetrics  `json:"latest_metrics"`
+	TimezoneOffsetSec int         `json:"timezone_offset_sec"`
+	Coordinates       []float64   `json:"coordinates,omitempty"`
+	PowerScore        float64     `json:"float64,omitempty"`
 }
 
 func (p *Proplet) SetAlive() {
