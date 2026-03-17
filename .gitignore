@@ -1,6 +1,6 @@
 # Propellerd Build
 build
-config.toml
+# config.toml
 
 # Rust
 target/
