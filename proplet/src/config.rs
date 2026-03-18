@@ -21,6 +21,8 @@ pub struct PropletFileConfig {
     pub client_key: String,
     pub channel_id: String,
     pub coordinates: Option<(f64, f64)>,
+    pub powermodel_u: Option<f64>,
+    pub powermodel_c: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +46,8 @@ pub struct PropletConfig {
     pub external_wasm_runtime: Option<String>,
     pub enable_monitoring: bool,
     pub coordinates: Option<(f64, f64)>,
-    pub power_score: Option<f64>,
+    pub powermodel_u: Option<f64>,
+    pub powermodel_c: Option<f64>,
     #[cfg(feature = "tee")]
     pub tee_enabled: bool,
     #[cfg(feature = "tee")]
@@ -79,7 +82,8 @@ impl Default for PropletConfig {
             external_wasm_runtime: None,
             enable_monitoring: true,
             coordinates: None,
-            power_score: None,
+            powermodel_u: None,
+            powermodel_c: None,
             #[cfg(feature = "tee")]
             tee_enabled: false,
             #[cfg(feature = "tee")]
@@ -119,6 +123,8 @@ impl PropletConfig {
             config.client_id = file_config.client_id;
             config.client_key = file_config.client_key;
             config.coordinates = file_config.coordinates;
+            config.powermodel_u = file_config.powermodel_u;
+            config.powermodel_c = file_config.powermodel_c;
         }
 
         #[cfg(feature = "tee")]
