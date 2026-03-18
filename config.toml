@@ -12,7 +12,6 @@ domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
 client_id = "59ada359-5dfd-4fa1-9413-e7f170a8eeb0"
 client_key = "89153268-d8af-4161-8fae-3dafd858e34f"
 channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-power_score = 0.2
 powermodel_u = 3.457855981342954
 powermodel_c = 4.403192179893827
 
@@ -22,7 +21,6 @@ domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
 client_id = "2b03336f-4d74-4105-8798-7f41b86507ee"
 client_key = "5222bba1-2496-4243-8a4a-3cfe68242c10"
 channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-power_score = 0.9
 powermodel_u = 3.484191712285443
 powermodel_c = 2.243353676359355
 
@@ -32,7 +30,6 @@ domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
 client_id = "3b03336f-4d74-4105-8798-7f41b86507ee"
 client_key = "3222bba1-2496-4243-8a4a-3cfe68242c10"
 channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-power_score = 0.5
 powermodel_u = 3.477373034437569
 powermodel_c = 1.078203625009793
 
