@@ -148,7 +148,8 @@ pub struct DiscoveryMessage {
     pub namespace: String,
     pub coordinates: Option<(f64, f64)>,
     pub timezone_offset_sec: i32,
-    pub power_score: Option<f64>,
+    pub powermodel_u: f64,
+    pub powermodel_c: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,6 +577,9 @@ mod tests {
             proplet_id: "proplet-456".to_string(),
             namespace: "prod".to_string(),
             coordinates: Some((51.05, 3.73)),
+            powermodel_u: 3.45,
+            powermodel_c: 4.40,
+            timezone_offset_sec: 3600,
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -584,6 +588,9 @@ mod tests {
         assert_eq!(deserialized.proplet_id, "proplet-456");
         assert_eq!(deserialized.namespace, "prod");
         assert_eq!(deserialized.coordinates, Some((51.05, 3.73)));
+        assert_eq!(deserialized.powermodel_u, 3.45);
+        assert_eq!(deserialized.powermodel_c, 4.40);
+        assert_eq!(deserialized.timezone_offset_sec, 3600);
     }
 
     #[test]

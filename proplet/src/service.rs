@@ -216,7 +216,8 @@ impl PropletService {
                 .unwrap_or_else(|| "default".to_string()),
             coordinates: self.config.coordinates.clone(),
             timezone_offset_sec: Local::now().offset().local_minus_utc(),
-            power_score: self.config.power_score,
+            powermodel_u: self.config.powermodel_u.unwrap_or(0.0),
+            powermodel_c: self.config.powermodel_c.unwrap_or(0.0),
         };
 
         let topic = build_topic(
@@ -243,7 +244,8 @@ impl PropletService {
                 .unwrap_or_else(|| "default".to_string()),
             coordinates: self.config.coordinates.clone(),
             timezone_offset_sec: Local::now().offset().local_minus_utc(),
-            power_score: self.config.power_score,
+            powermodel_u: self.config.powermodel_u.unwrap_or(0.0),
+            powermodel_c: self.config.powermodel_c.unwrap_or(0.0),
         };
 
         let topic = build_topic(

@@ -424,14 +424,16 @@ func (svc *service) createPropletHandler(ctx context.Context, msg map[string]any
 	}
 	timezone_offset_sec := int(offsetFloat)
 
-	power_score, _ := msg["power_score"].(float64)
+	powermodel_u, _ := msg["powermodel_u"].(float64)
+	powermodel_c, _ := msg["powermodel_c"].(float64)
 
 	p := proplet.Proplet{
 		ID:                propletID,
 		Name:              namegen.Generate(),
 		Coordinates:       coords,
 		TimezoneOffsetSec: timezone_offset_sec,
-		PowerScore:        power_score,
+		PowerModelU:       powermodel_u,
+		PowerModelC:       powermodel_c,
 	}
 	if err := svc.propletsDB.Create(ctx, p.ID, p); err != nil {
 		return err
