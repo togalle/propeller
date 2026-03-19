@@ -307,6 +307,17 @@ func (svc *service) StopTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
+func (svc *service) TrainGA(ctx context.Context) error {
+	go func() {
+		if err := scheduler.TrainGA(ctx, svc.logger); err != nil {
+			svc.logger.ErrorContext(ctx, "failed to train dynamic scheduler", "error", err)
+			return
+		}
+	}()
+
+	return nil
+}
+
 func (svc *service) Subscribe(ctx context.Context) error {
 	topic := svc.baseTopic + "/#"
 

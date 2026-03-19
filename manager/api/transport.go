@@ -113,6 +113,15 @@ func MakeHandler(svc manager.Service, logger *slog.Logger, instanceID string) ht
 		})
 	})
 
+	mux.Route("/schedulers", func(r chi.Router) {
+		r.Post("/dynamic/train", otelhttp.NewHandler(kithttp.NewServer(
+			trainGAEndpoint(svc),
+			decodeEmptyReq,
+			api.EncodeResponse,
+			opts...,
+		), "train-dynamic-scheduler").ServeHTTP)
+	})
+
 	mux.Get("/health", supermq.Health("manager", instanceID))
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -212,4 +221,8 @@ func decodeMetricsReq(key string) kithttp.DecodeRequestFunc {
 			limit:  l,
 		}, nil
 	}
+}
+
+func decodeEmptyReq(_ context.Context, _ *http.Request) (any, error) {
+	return struct{}{}, nil
 }

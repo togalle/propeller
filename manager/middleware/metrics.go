@@ -116,6 +116,15 @@ func (mm *metricsMiddleware) StopTask(ctx context.Context, id string) error {
 	return mm.svc.StopTask(ctx, id)
 }
 
+func (mm *metricsMiddleware) TrainGA(ctx context.Context) error {
+	defer func(begin time.Time) {
+		mm.counter.With("method", "train-ga").Add(1)
+		mm.latency.With("method", "train-ga").Observe(time.Since(begin).Seconds())
+	}(time.Now())
+
+	return mm.svc.TrainGA(ctx)
+}
+
 func (mm *metricsMiddleware) GetTaskMetrics(ctx context.Context, taskID string, offset, limit uint64) (manager.TaskMetricsPage, error) {
 	defer func(begin time.Time) {
 		mm.counter.With("method", "get-task-metrics").Add(1)

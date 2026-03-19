@@ -194,6 +194,18 @@ func stopTaskEndpoint(svc manager.Service) endpoint.Endpoint {
 	}
 }
 
+func trainGAEndpoint(svc manager.Service) endpoint.Endpoint {
+	return func(ctx context.Context, _ any) (any, error) {
+		if err := svc.TrainGA(ctx); err != nil {
+			return messageResponse{}, err
+		}
+
+		return messageResponse{
+			"started": true,
+		}, nil
+	}
+}
+
 func getTaskMetricsEndpoint(svc manager.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req, ok := request.(metricsReq)
