@@ -27,6 +27,7 @@ type Config struct {
 	WeightMax      float64
 	PopulationSize int
 	Generations    int
+	MutationRate   float64
 	ScoreTasks     int
 	TasksURL       string
 	Tasks          []Task
@@ -38,6 +39,7 @@ var DefaultConfig = Config{
 	WeightMax:      10,
 	PopulationSize: 50,
 	Generations:    50,
+	MutationRate:   0.1,
 	ScoreTasks:     100,
 	TasksURL:       "http://localhost:7070/tasks",
 	Tasks: []Task{
@@ -146,6 +148,18 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 
 		// Mutate
+		for i := 0; i < DefaultConfig.PopulationSize; i++ {
+			if rand.Float64() < DefaultConfig.MutationRate {
+				population[i].Genes = Genes{
+					CpuPercent:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					CpuUserSeconds:     DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					CpuSystemSeconds:   DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					TimezoneDifference: DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					Distance:           DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					PowerScore:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+				}
+			}
+		}
 
 	}
 
