@@ -224,8 +224,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 		if err != nil {
 			return err
 		}
-		svc.logger.InfoContext(ctx, "selected proplet using custom scheduler",
-			"scheduler", t.Scheduler, "proplet_id", p.ID)
 	} else {
 		switch t.PropletID {
 		case "":
@@ -233,7 +231,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 			if err != nil {
 				return err
 			}
-			svc.logger.InfoContext(ctx, "selected proplet for task", "proplet_id", p.ID)
 		default:
 			p, err = svc.GetProplet(ctx, t.PropletID)
 			if err != nil {

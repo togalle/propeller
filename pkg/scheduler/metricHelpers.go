@@ -44,7 +44,7 @@ func getTZScore(propletOffsetSecs int) float64 {
 	return 1 - (diff / 43200)
 }
 
-func (c *staticScheduler) fetchSolarRadiations(proplets map[string][]float64) error {
+func fetchSolarRadiations(proplets map[string][]float64, radiationByProplet map[string]float64) error {
 	for id, coords := range proplets {
 		url := fmt.Sprintf(OPENMETEO, coords[0], coords[1])
 
@@ -90,9 +90,25 @@ func (c *staticScheduler) fetchSolarRadiations(proplets map[string][]float64) er
 			scaled = 1
 		}
 
-		c.PropletRadiations[id] = scaled
+		radiationByProplet[id] = scaled
 	}
 
+	return nil
+}
+
+func (c *staticScheduler) fetchSolarRadiations(proplets map[string][]float64) error {
+	if err := fetchSolarRadiations(proplets, c.PropletRadiations); err != nil {
+		return err
+	}
+	c.LastAPIFetch = time.Now()
+
+	return nil
+}
+
+func (c *dynamicScheduler) fetchSolarRadiations(proplets map[string][]float64) error {
+	if err := fetchSolarRadiations(proplets, c.PropletRadiations); err != nil {
+		return err
+	}
 	c.LastAPIFetch = time.Now()
 
 	return nil

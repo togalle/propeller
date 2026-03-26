@@ -57,6 +57,7 @@ type Task struct {
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
 	Scheduler         string                     `json:"scheduler,omitempty"`
+	Weights           map[string]float64         `json:"weights,omitempty"`
 }
 
 type TaskPage struct {

@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
+	"math"
 	"math/rand"
 	"mime/multipart"
 	"net/http"
@@ -30,22 +32,22 @@ type Config struct {
 	MutationRate   float64
 	ScoreTasks     int
 	TasksURL       string
-	Tasks          []Task
+	Tasks          []Task[any]
 	ScoreWeights   ScoreWeights
 }
 
 var DefaultConfig = Config{
 	WeightMin:      -10,
 	WeightMax:      10,
-	PopulationSize: 50,
-	Generations:    50,
+	PopulationSize: 10,
+	Generations:    5,
 	MutationRate:   0.1,
-	ScoreTasks:     100,
+	ScoreTasks:     10,
 	TasksURL:       "http://localhost:7070/tasks",
-	Tasks: []Task{
-		{Name: "task1", File: "/path/to/task1.wasm", Inputs: []string{"10", "22"}},
-		{Name: "task2", File: "/path/to/task2.wasm", Inputs: []string{"input3", "input4"}},
-		{Name: "task3", File: "/path/to/task3.wasm", Inputs: []string{"input5", "input6"}},
+	Tasks: []Task[any]{
+		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
+		{Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
+		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
 	},
 	ScoreWeights: ScoreWeights{
 		delay: 1.0,
@@ -58,10 +60,10 @@ type (
 		delay float64
 	}
 
-	Task struct {
+	Task[T any] struct {
 		Name   string
 		File   string
-		Inputs []string
+		Inputs []T
 	}
 
 	Genes struct {
@@ -82,18 +84,133 @@ type (
 )
 
 type dynamicScheduler struct {
+	ManagerCoordinates []float64
+	PropletRadiations  map[string]float64
+	LastAPIFetch       time.Time
 }
 
 // Initialization
-func NewDynamic() Scheduler {
-	return &dynamicScheduler{}
+func NewDynamic(managerCoordinates []float64) Scheduler {
+	return &dynamicScheduler{
+		ManagerCoordinates: managerCoordinates,
+		PropletRadiations:  make(map[string]float64),
+		LastAPIFetch:       time.Time{},
+	}
 }
 
 func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet) (proplet.Proplet, error) {
-	return proplet.Proplet{}, nil
+	testPropletCoords := []float64{50.8503, 4.3517}
+	testManagerCoords := []float64{51.0543, 3.7174}
+
+	if len(proplets) == 0 {
+		return proplet.Proplet{}, ErrNoProplet
+	}
+
+	scores := make(map[string]map[string]float64)
+
+	var aliveProplets []proplet.Proplet
+	managerCoords := c.ManagerCoordinates
+	if len(managerCoords) < 2 {
+		managerCoords = testManagerCoords
+	}
+
+	for _, p := range proplets {
+		if !p.Alive {
+			continue
+		}
+
+		aliveProplets = append(aliveProplets, p)
+		propletCoords := p.Coordinates
+		if len(propletCoords) < 2 {
+			propletCoords = testPropletCoords
+		}
+
+		scores[p.ID] = map[string]float64{
+			"cpu_percent":         scoreCPUPercent(p.LatestMetrics.Percent),
+			"cpu_user_seconds":    1.0 / (1.0 + p.LatestMetrics.UserSeconds),
+			"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
+			"timezone_difference": getTZScore(p.TimezoneOffsetSec),
+			"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
+			"power_score":         1.0 / (1.0 + p.PowerModelU + (p.LatestMetrics.SystemSeconds+p.LatestMetrics.UserSeconds)*p.PowerModelC),
+		}
+	}
+
+	if len(aliveProplets) == 0 {
+		return proplet.Proplet{}, ErrDeadProplers
+	}
+
+	if time.Since(c.LastAPIFetch) > time.Minute*30 {
+		propletCoords := make(map[string][]float64)
+		for _, p := range aliveProplets {
+			coords := p.Coordinates
+			if len(coords) < 2 {
+				coords = testPropletCoords
+			}
+			propletCoords[p.ID] = coords
+		}
+		if err := c.fetchSolarRadiations(propletCoords); err != nil {
+			fmt.Printf("error fetching solar radiations, defaulting to 0: %v\n", err)
+		}
+	}
+
+	for _, p := range aliveProplets {
+		scores[p.ID]["radiation"] = c.PropletRadiations[p.ID]
+	}
+
+	weights := map[string]float64{
+		"cpu_percent":         WEIGHT_CPU_PERCENT,
+		"cpu_user_seconds":    WEIGHT_CPU_USER_SECONDS,
+		"cpu_system_seconds":  WEIGHT_CPU_SYSTEM_SECONDS,
+		"distance":            WEIGHT_DISTANCE,
+		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
+		"radiation":           WEIGHT_RADIATION,
+		"power_score":         WEIGHT_POWER_SCORE,
+	}
+	for key, value := range t.Weights {
+		if _, ok := weights[key]; ok {
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				continue
+			}
+			weights[key] = value
+		}
+	}
+
+	bestIdx := -1
+	bestScore := math.Inf(-1)
+
+	for i := range aliveProplets {
+		p := aliveProplets[i]
+		var score float64
+
+		for metric, weight := range weights {
+			score += scores[p.ID][metric] * weight
+		}
+
+		if math.IsNaN(score) {
+			continue
+		}
+
+		if bestIdx == -1 || score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+
+	if bestIdx == -1 {
+		return proplet.Proplet{}, ErrDeadProplers
+	}
+
+	selected := aliveProplets[bestIdx]
+	selected.TaskCount += 1
+
+	return selected, nil
 }
 
 func TrainGA(ctx context.Context, logger *slog.Logger) error {
+	logger.InfoContext(
+		ctx, "Starting GA training...\nCreating first generation...",
+	)
+
 	// Initialization
 	var population Population = createFirstGeneration(DefaultConfig.PopulationSize)
 	var httpClient = &http.Client{
@@ -111,6 +228,10 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 		taskFileData[t.File] = data
 	}
+
+	logger.InfoContext(
+		ctx, "Starting generation loop...",
+	)
 
 	// Loop over generations
 	for range DefaultConfig.Generations {
@@ -169,6 +290,9 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 
 	// Write best chromosome to config.toml
 	best := population[0]
+	logger.InfoContext(
+		ctx, "Writing best chromosome", "values", best,
+	)
 	if err := writeBestChromosome("config.toml", best); err != nil {
 		return err
 	}
@@ -202,8 +326,12 @@ func writeBestChromosome(path string, best Chromosome) error {
 		return fmt.Errorf("parse toml: %w", err)
 	}
 
-	weights := []float64{best.Genes.CpuPercent, best.Genes.CpuUserSeconds, best.Genes.CpuSystemSeconds, best.Genes.TimezoneDifference, best.Genes.Distance, best.Genes.PowerScore}
-	tree.SetPath([]string{"scheduler", "GA", "weights"}, weights)
+	tree.SetPath([]string{"scheduler", "cpu_percent"}, best.Genes.CpuPercent)
+	tree.SetPath([]string{"scheduler", "cpu_user_seconds"}, best.Genes.CpuUserSeconds)
+	tree.SetPath([]string{"scheduler", "cpu_system_seconds"}, best.Genes.CpuSystemSeconds)
+	tree.SetPath([]string{"scheduler", "timezone_difference"}, best.Genes.TimezoneDifference)
+	tree.SetPath([]string{"scheduler", "distance"}, best.Genes.Distance)
+	tree.SetPath([]string{"scheduler", "power_score"}, best.Genes.PowerScore)
 
 	// Keep existing file permissions when possible.
 	mode := os.FileMode(0o644)
@@ -245,7 +373,7 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 		resp.Body.Close()
 	}
 
-	var delay int
+	var delay int = 0
 
 	// Check if all tasks are done
 	for _, id := range taskIds {
@@ -258,7 +386,7 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 			}
 
 			var res struct {
-				Result     *string   `json:"result,omitempty"`
+				Result     *string   `json:"results,omitempty"`
 				StartTime  time.Time `json:"start_time"`
 				FinishTime time.Time `json:"finish_time"`
 			}
@@ -270,11 +398,14 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 				break
 			}
 
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
 	// TODO: expand scoring function
+	if len(taskIds) == 0 {
+		return math.Inf(-1)
+	}
 
 	averageDelay := float64(delay) / float64(len(taskIds))
 
@@ -282,36 +413,83 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 }
 
 func createTask(index int, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
-	// Create task
 	task := DefaultConfig.Tasks[index]
-	body := map[string]any{"name": task.Name, "inputs": task.Inputs, "scheduler": "dynamic", "weights": genes}
-	b, _ := json.Marshal(body)
+
+	body := map[string]any{
+		"name":      task.Name,
+		"inputs":    task.Inputs, // must be []uint64 in Task struct
+		"scheduler": "dynamic",
+		"weights": map[string]float64{
+			"cpu_percent":         genes.CpuPercent,
+			"cpu_user_seconds":    genes.CpuUserSeconds,
+			"cpu_system_seconds":  genes.CpuSystemSeconds,
+			"timezone_difference": genes.TimezoneDifference,
+			"distance":            genes.Distance,
+			"power_score":         genes.PowerScore,
+		},
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal create task body: %w", err)
+	}
 
 	resp, err := client.Post(DefaultConfig.TasksURL, "application/json", bytes.NewBuffer(b))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create task request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var res struct{ ID string }
-	json.NewDecoder(resp.Body).Decode(&res)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create task failed: status=%d body=%s", resp.StatusCode, string(raw))
+	}
 
-	// Upload task file
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("decode create task response: %w", err)
+	}
+	if res.ID == "" {
+		return "", fmt.Errorf("create task returned empty id")
+	}
+
+	fileData, ok := taskFileData[task.File]
+	if !ok || len(fileData) == 0 {
+		return "", fmt.Errorf("missing preloaded wasm file data for %s", task.File)
+	}
+
 	putBody := &bytes.Buffer{}
 	writer := multipart.NewWriter(putBody)
-	part, _ := writer.CreateFormFile("file", filepath.Base(task.File))
 
-	// Use pre-loaded file data to avoid disk I/O during training
-	part.Write(taskFileData[task.File])
-	writer.Close()
+	part, err := writer.CreateFormFile("file", filepath.Base(task.File))
+	if err != nil {
+		return "", fmt.Errorf("create multipart file part: %w", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		return "", fmt.Errorf("write wasm payload: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("finalize multipart payload: %w", err)
+	}
 
-	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/upload", DefaultConfig.TasksURL, res.ID), putBody)
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/upload", DefaultConfig.TasksURL, res.ID), putBody)
+	if err != nil {
+		return "", fmt.Errorf("build upload request: %w", err)
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	respPut, err := client.Do(req)
-	if err == nil {
-		respPut.Body.Close()
+	if err != nil {
+		return "", fmt.Errorf("upload wasm request failed: %w", err)
+	}
+	defer respPut.Body.Close()
+
+	if respPut.StatusCode < 200 || respPut.StatusCode >= 300 {
+		raw, _ := io.ReadAll(respPut.Body)
+		return "", fmt.Errorf("upload wasm failed: status=%d body=%s", respPut.StatusCode, string(raw))
 	}
 
-	return res.ID, err
+	return res.ID, nil
 }
