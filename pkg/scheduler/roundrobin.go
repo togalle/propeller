@@ -25,6 +25,7 @@ func (r *roundRobin) SelectProplet(t task.Task, proplets []proplet.Proplet) (pro
 	sorted := make([]proplet.Proplet, len(proplets))
 	copy(sorted, proplets)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	proplets = sorted
 
 	alive := 0
 	for i := range proplets {
