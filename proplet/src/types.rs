@@ -159,6 +159,8 @@ pub struct ResultMessage {
     pub results: String,
     pub receive_time: String,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_time_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -605,6 +607,7 @@ mod tests {
                 .as_secs()
                 .to_string(),
             error: None,
+            cpu_time_ms: Some(123.456),
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -613,6 +616,7 @@ mod tests {
         assert_eq!(deserialized.task_id, "task-result-1");
         assert_eq!(deserialized.results, "hello world");
         assert!(deserialized.error.is_none());
+        assert_eq!(deserialized.cpu_time_ms, Some(123.456));
     }
 
     #[test]
@@ -627,6 +631,7 @@ mod tests {
                 .as_secs()
                 .to_string(),
             error: Some("Execution failed".to_string()),
+            cpu_time_ms: None,
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -635,6 +640,7 @@ mod tests {
         assert_eq!(deserialized.task_id, "task-result-2");
         assert!(deserialized.results.is_empty());
         assert_eq!(deserialized.error, Some("Execution failed".to_string()));
+        assert!(deserialized.cpu_time_ms.is_none());
     }
 
     #[test]

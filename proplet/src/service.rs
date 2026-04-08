@@ -605,6 +605,14 @@ impl PropletService {
 
             monitor.stop_monitoring(&task_id).await.ok();
 
+            let cpu_time_ms = match runtime.take_cpu_time_ms(&task_id).await {
+                Ok(value) => value,
+                Err(e) => {
+                    debug!("Failed to collect CPU time for task {}: {}", task_id, e);
+                    None
+                }
+            };
+
             let (result_str, error) = match result {
                 Ok(data) => {
                     let result_str = String::from_utf8_lossy(&data).to_string();
@@ -626,7 +634,11 @@ impl PropletService {
                 results: result_str,
                 receive_time,
                 error,
+                cpu_time_ms,
             };
+
+            // Log result message before publishing to ensure it has correct information
+            info!("Publishing result for task {}: {:?}", task_id, result_msg);
 
             let topic = build_topic(&domain_id, &channel_id, "control/proplet/results");
 
@@ -787,6 +799,7 @@ impl PropletService {
             results: result_str,
             receive_time: chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339(),
             error,
+            cpu_time_ms: None,
         };
 
         let topic = build_topic(

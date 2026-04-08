@@ -13,6 +13,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 pub struct WasmtimeRuntime {
     engine: Engine,
     tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    completed_cpu_time_ms: Arc<Mutex<HashMap<String, f64>>>,
 }
 
 impl WasmtimeRuntime {
@@ -30,7 +31,30 @@ impl WasmtimeRuntime {
         Ok(Self {
             engine,
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            completed_cpu_time_ms: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn read_current_thread_cpu_time_ms() -> Option<f64> {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        let ret = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        if ret != 0 {
+            return None;
+        }
+
+        let secs = ts.tv_sec as f64;
+        let nanos = ts.tv_nsec as f64;
+        Some((secs * 1000.0) + (nanos / 1_000_000.0))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn read_current_thread_cpu_time_ms() -> Option<f64> {
+        None
     }
 }
 
@@ -98,124 +122,144 @@ impl Runtime for WasmtimeRuntime {
 
             let task_id = config.id.clone();
             let task_id_for_cleanup = task_id.clone();
+            let task_id_for_cpu = task_id.clone();
             let function_name = config.function_name.clone();
             let args = config.args.clone();
             let tasks = self.tasks.clone();
+            let completed_cpu_time_ms = self.completed_cpu_time_ms.clone();
             let engine = self.engine.clone();
 
             let (result_tx, result_rx) = oneshot::channel();
 
             let handle = tokio::task::spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
-                    // Initialize the WASM runtime by calling _initialize if it exists
-                    // This is the WASI reactor initialization function
-                    if let Some(init_func) = instance.get_func(&mut store, "_initialize") {
-                        info!("Found _initialize function, initializing WASM runtime for task: {}", task_id);
-                        init_func.call(&mut store, &[], &mut [])
-                            .context("Failed to initialize WASM runtime via _initialize")?;
-                        info!("WASM runtime initialized successfully for task: {}", task_id);
-                    } else {
-                        info!("No _initialize function found, skipping initialization for task: {}", task_id);
-                    }
+                    let cpu_start_ms = Self::read_current_thread_cpu_time_ms();
 
-                    let func = instance
-                        .get_func(&mut store, &function_name)
-                        .context(format!(
-                            "Function '{function_name}' not found in module exports"
+                    let execution_result = (|| -> Result<Vec<u8>> {
+                        // Initialize the WASM runtime by calling _initialize if it exists
+                        // This is the WASI reactor initialization function
+                        if let Some(init_func) = instance.get_func(&mut store, "_initialize") {
+                            info!("Found _initialize function, initializing WASM runtime for task: {}", task_id);
+                            init_func.call(&mut store, &[], &mut [])
+                                .context("Failed to initialize WASM runtime via _initialize")?;
+                            info!("WASM runtime initialized successfully for task: {}", task_id);
+                        } else {
+                            info!("No _initialize function found, skipping initialization for task: {}", task_id);
+                        }
 
-                        ))?;
+                        let func = instance
+                            .get_func(&mut store, &function_name)
+                            .context(format!(
+                                "Function '{function_name}' not found in module exports"
 
-                    let func_ty = func.ty(&store);
+                            ))?;
 
-                    let param_types: Vec<_> = func_ty.params().collect();
-                    let result_types: Vec<_> = func_ty.results().collect();
+                        let func_ty = func.ty(&store);
 
-                    if args.len() != param_types.len() {
-                        return Err(anyhow::anyhow!(
-                            "Argument count mismatch for function '{}': expected {} arguments but got {}",
+                        let param_types: Vec<_> = func_ty.params().collect();
+                        let result_types: Vec<_> = func_ty.results().collect();
+
+                        if args.len() != param_types.len() {
+                            return Err(anyhow::anyhow!(
+                                "Argument count mismatch for function '{}': expected {} arguments but got {}",
+                                function_name,
+                                param_types.len(),
+                                args.len()
+                            ));
+                        }
+
+                        let wasm_args: Vec<Val> = args
+                            .iter()
+                            .zip(param_types.iter())
+                            .map(|(arg, param_type)| match param_type {
+                                ValType::I32 => Val::I32(*arg as i32),
+                                ValType::I64 => Val::I64(*arg as i64),
+                                ValType::F32 => Val::F32((*arg as f32).to_bits()),
+                                ValType::F64 => Val::F64((*arg as f64).to_bits()),
+                                _ => Val::I32(*arg as i32), // Default to i32
+                            })
+                            .collect();
+
+                        info!(
+                            "Calling function '{}' with {} params, expects {} results",
                             function_name,
-                            param_types.len(),
-                            args.len()
-                        ));
-                    }
+                            wasm_args.len(),
+                            result_types.len()
+                        );
 
-                    let wasm_args: Vec<Val> = args
-                        .iter()
-                        .zip(param_types.iter())
-                        .map(|(arg, param_type)| match param_type {
-                            ValType::I32 => Val::I32(*arg as i32),
-                            ValType::I64 => Val::I64(*arg as i64),
-                            ValType::F32 => Val::F32((*arg as f32).to_bits()),
-                            ValType::F64 => Val::F64((*arg as f64).to_bits()),
-                            _ => Val::I32(*arg as i32), // Default to i32
-                        })
-                        .collect();
+                        let mut results: Vec<Val> = result_types
+                            .iter()
+                            .map(|result_type| match result_type {
+                                ValType::I32 => Val::I32(0),
+                                ValType::I64 => Val::I64(0),
+                                ValType::F32 => Val::F32(0),
+                                ValType::F64 => Val::F64(0),
+                                _ => Val::I32(0),
+                            })
+                            .collect();
 
-                    info!(
-                        "Calling function '{}' with {} params, expects {} results",
-                        function_name,
-                        wasm_args.len(),
-                        result_types.len()
-                    );
+                        // Increment epoch before calling to ensure interruption works
+                        engine.increment_epoch();
 
-                    let mut results: Vec<Val> = result_types
-                        .iter()
-                        .map(|result_type| match result_type {
-                            ValType::I32 => Val::I32(0),
-                            ValType::I64 => Val::I64(0),
-                            ValType::F32 => Val::F32(0),
-                            ValType::F64 => Val::F64(0),
-                            _ => Val::I32(0),
-                        })
-                        .collect();
+                        func.call(&mut store, &wasm_args, &mut results)
+                            .context(format!("Failed to call function '{function_name}'"))?;
 
-                    // Increment epoch before calling to ensure interruption works
-                    engine.increment_epoch();
+                        info!("Function '{}' executed successfully", function_name);
 
-                    func.call(&mut store, &wasm_args, &mut results)
-                        .context(format!("Failed to call function '{function_name}'"))?;
+                        let result_string = if !results.is_empty() {
+                            let result_val = &results[0];
 
-                    info!("Function '{}' executed successfully", function_name);
-
-                    let result_string = if !results.is_empty() {
-                        let result_val = &results[0];
-
-                        if let Some(v) = result_val.i32() {
-                            v.to_string()
-                        } else if let Some(v) = result_val.i64() {
-                            v.to_string()
-                        } else if let Some(v) = result_val.f32() {
-                            v.to_string()
-                        } else if let Some(v) = result_val.f64() {
-                            v.to_string()
+                            if let Some(v) = result_val.i32() {
+                                v.to_string()
+                            } else if let Some(v) = result_val.i64() {
+                                v.to_string()
+                            } else if let Some(v) = result_val.f32() {
+                                v.to_string()
+                            } else if let Some(v) = result_val.f64() {
+                                v.to_string()
+                            } else {
+                                String::new()
+                            }
                         } else {
                             String::new()
-                        }
-                    } else {
-                        String::new()
+                        };
+
+                        let result_bytes = result_string.into_bytes();
+
+                        info!(
+                            "Task {} completed successfully, result size: {} bytes",
+                            task_id,
+                            result_bytes.len()
+                        );
+
+                        Ok(result_bytes)
+                    })();
+
+                    let cpu_end_ms = Self::read_current_thread_cpu_time_ms();
+                    let cpu_time_ms = match (cpu_start_ms, cpu_end_ms) {
+                        (Some(start), Some(end)) => Some((end - start).max(0.0)),
+                        _ => None,
                     };
 
-                    let result_bytes = result_string.into_bytes();
-
-                    info!(
-                        "Task {} completed successfully, result size: {} bytes",
-                        task_id,
-                        result_bytes.len()
-                    );
-
-                    Ok::<Vec<u8>, anyhow::Error>(result_bytes)
+                    (execution_result, cpu_time_ms)
                 })
                 .await;
 
+                let (final_result, cpu_time_ms) = match result {
+                    Ok((Ok(data), cpu_time_ms)) => (Ok(data), cpu_time_ms),
+                    Ok((Err(e), cpu_time_ms)) => (Err(e), cpu_time_ms),
+                    Err(e) => (Err(anyhow::anyhow!("Task join error: {e}")), None),
+                };
+
+                if let Some(cpu_time_ms) = cpu_time_ms {
+                    completed_cpu_time_ms
+                        .lock()
+                        .await
+                        .insert(task_id_for_cpu, cpu_time_ms);
+                }
+
                 // Clean up task from registry
                 tasks.lock().await.remove(&task_id_for_cleanup);
-
-                // Send result back through channel
-                let final_result = match result {
-                    Ok(Ok(data)) => Ok(data),
-                    Ok(Err(e)) => Err(e),
-                    Err(e) => Err(anyhow::anyhow!("Task join error: {e}")),
-                };
 
                 let _ = result_tx.send(final_result);
             });
@@ -237,6 +281,8 @@ impl Runtime for WasmtimeRuntime {
     async fn stop_app(&self, id: String) -> Result<()> {
         info!("Stopping Wasmtime runtime app: task_id={}", id);
 
+        self.completed_cpu_time_ms.lock().await.remove(&id);
+
         let mut tasks = self.tasks.lock().await;
         if let Some(handle) = tasks.remove(&id) {
             handle.abort();
@@ -254,6 +300,10 @@ impl Runtime for WasmtimeRuntime {
         }
 
         Ok(Some(std::process::id()))
+    }
+
+    async fn take_cpu_time_ms(&self, id: &str) -> Result<Option<f64>> {
+        Ok(self.completed_cpu_time_ms.lock().await.remove(id))
     }
 }
 
