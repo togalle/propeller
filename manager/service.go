@@ -520,6 +520,10 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 		t.Error = errMsg
 	}
 
+	if cpuTimeMS, ok := msg["cpu_time_ms"].(float64); ok {
+		t.CPUTimeMS = &cpuTimeMS
+	}
+
 	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
 		return err
 	}
