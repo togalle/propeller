@@ -1,3 +1,4 @@
+# c is constant power draw, u is utilization-proportional power draw (https://hal.science/hal-03912723v1)
 
 [manager]
   channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
