@@ -637,12 +637,7 @@ impl PropletService {
                 cpu_time_ms,
             };
 
-            // Log result message before publishing to ensure it has correct information
-            info!("Publishing result for task {}: {:?}", task_id, result_msg);
-
             let topic = build_topic(&domain_id, &channel_id, "control/proplet/results");
-
-            info!("Publishing result for task {}", task_id);
 
             if let Err(e) = pubsub.publish(&topic, &result_msg, qos).await {
                 error!("Failed to publish result for task {}: {}", task_id, e);
