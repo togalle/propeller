@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/absmach/propeller/pkg/proplet"
@@ -39,10 +40,10 @@ type Config struct {
 var DefaultConfig = Config{
 	WeightMin:      -10,
 	WeightMax:      10,
-	PopulationSize: 10,
-	Generations:    5,
+	PopulationSize: 50,
+	Generations:    50,
 	MutationRate:   0.1,
-	ScoreTasks:     10,
+	ScoreTasks:     50,
 	TasksURL:       "http://localhost:7070/tasks",
 	Tasks: []Task[any]{
 		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
@@ -50,14 +51,23 @@ var DefaultConfig = Config{
 		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
 	},
 	ScoreWeights: ScoreWeights{
-		delay: 1.0,
+		delay:  1.0,
+		energy: 1.0,
 	},
 }
 
 // Types
 type (
 	ScoreWeights struct {
-		delay float64
+		delay  float64
+		energy float64
+	}
+
+	GenerationHistoryEntry struct {
+		Generation int       `json:"generation"`
+		Timestamp  time.Time `json:"timestamp"`
+		BestScore  float64   `json:"best_score"`
+		Weights    Genes     `json:"weights"`
 	}
 
 	Task[T any] struct {
@@ -207,6 +217,14 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 }
 
 func TrainGA(ctx context.Context, logger *slog.Logger) error {
+	// If folder doesnt exist, create it
+	if _, err := os.Stat("ga_history"); os.IsNotExist(err) {
+		if err := os.Mkdir("ga_history", 0o755); err != nil {
+			return fmt.Errorf("create ga_history folder: %w", err)
+		}
+	}
+	generationHistoryFile := fmt.Sprintf("ga_history/ga_generation_history_%d.json", time.Now().Unix())
+
 	logger.InfoContext(
 		ctx, "Starting GA training...\nCreating first generation...",
 	)
@@ -228,22 +246,41 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 		taskFileData[t.File] = data
 	}
+	lastBestScore := math.Inf(-1)
+	generationCount := 1
+	history := make([]GenerationHistoryEntry, 0)
 
 	logger.InfoContext(
 		ctx, "Starting generation loop...",
 	)
 
-	// Loop over generations
-	for range DefaultConfig.Generations {
-		// Score
-		for i := range DefaultConfig.PopulationSize {
-			population[i].Fitness = scoreChromosome(population[i], httpClient, taskFileData)
-		}
+	// Score
+	for i := range DefaultConfig.PopulationSize {
+		population[i].Fitness = scoreChromosome(population[i], httpClient, taskFileData)
+	}
 
-		// Sort
-		slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
-			return cmp.Compare(b.Fitness, a.Fitness)
-		})
+	// Sort
+	slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
+		return cmp.Compare(b.Fitness, a.Fitness)
+	})
+
+	history = append(history, GenerationHistoryEntry{
+		Generation: generationCount,
+		Timestamp:  time.Now().UTC(),
+		BestScore:  population[0].Fitness,
+		Weights:    population[0].Genes,
+	})
+	if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
+		return err
+	}
+
+	// Loop over generations
+	for lastBestScore != 0 && math.Abs(population[0].Fitness-lastBestScore) > 1e-6 {
+		logger.InfoContext(
+			ctx, fmt.Sprintf("Generation %d complete. Best fitness: %f", generationCount, population[0].Fitness),
+		)
+
+		lastBestScore = population[0].Fitness
 
 		// Crossover
 		for i := DefaultConfig.PopulationSize / 2; i < DefaultConfig.PopulationSize; i++ {
@@ -282,18 +319,37 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 			}
 		}
 
+		// Score
+		for i := range DefaultConfig.PopulationSize {
+			population[i].Fitness = scoreChromosome(population[i], httpClient, taskFileData)
+		}
+
+		// Sort
+		slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
+			return cmp.Compare(b.Fitness, a.Fitness)
+		})
+
+		generationCount++
+		history = append(history, GenerationHistoryEntry{
+			Generation: generationCount,
+			Timestamp:  time.Now().UTC(),
+			BestScore:  population[0].Fitness,
+			Weights:    population[0].Genes,
+		})
+		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
+			return err
+		}
 	}
 
-	slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
-		return cmp.Compare(b.Fitness, a.Fitness)
-	})
+	logger.InfoContext(
+		ctx, "Wrote GA generation history", "path", generationHistoryFile, "entries", len(history),
+	)
 
 	// Write best chromosome to config.toml
-	best := population[0]
 	logger.InfoContext(
-		ctx, "Writing best chromosome", "values", best,
+		ctx, "Writing best chromosome", "values", population[0].Genes,
 	)
-	if err := writeBestChromosome("config.toml", best); err != nil {
+	if err := writeBestChromosome("config.toml", population[0]); err != nil {
 		return err
 	}
 
@@ -346,9 +402,28 @@ func writeBestChromosome(path string, best Chromosome) error {
 	return nil
 }
 
+func writeGenerationHistory(path string, history []GenerationHistoryEntry) error {
+	b, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal generation history: %w", err)
+	}
+
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode()
+	}
+
+	if err := os.WriteFile(path, b, mode); err != nil {
+		return fmt.Errorf("write generation history: %w", err)
+	}
+
+	return nil
+}
+
 func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData map[string][]byte) float64 {
 	// Execute tasks using the weights in the chromosome and measure performance to calculate fitness.
 	var taskIds []string
+	propletCoefficientCache := make(map[string]float64)
 
 	// Create all tasks
 	for range DefaultConfig.ScoreTasks {
@@ -364,52 +439,160 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 
 	// Start all tasks
 	for _, id := range taskIds {
-		req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/start", DefaultConfig.TasksURL, id), nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("Error starting task %s: %v", id, err)
-			continue
+		var started bool
+		for attempt := range 2 {
+			req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/start", DefaultConfig.TasksURL, id), nil)
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Error starting task %s (attempt %d): %v", id, attempt+1, err)
+				break
+			}
+
+			var result struct {
+				Started bool `json:"started"`
+			}
+			json.NewDecoder(resp.Body).Decode(&result)
+			resp.Body.Close()
+
+			if result.Started {
+				started = true
+				break
+			}
+
+			if attempt < 1 {
+				log.Printf("Task %s not started, retrying after delay...", id)
+				time.Sleep(2 * time.Second)
+			}
 		}
-		resp.Body.Close()
+
+		if !started {
+			log.Printf("Failed to start task %s after retries", id)
+		}
 	}
 
-	var delay int = 0
+	var delay int
+	var totalEnergyScore float64
+	var energySamples int
+	var completedOrFailed int
+
+	const taskPollInterval = 10 * time.Millisecond
+	const taskPollTimeout = 2 * time.Minute
 
 	// Check if all tasks are done
 	for _, id := range taskIds {
+		deadline := time.Now().Add(taskPollTimeout)
+
 		for {
+			if time.Now().After(deadline) {
+				log.Printf("Timeout waiting for task %s to complete during GA scoring", id)
+				break
+			}
+
 			req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", DefaultConfig.TasksURL, id), nil)
 			resp, err := client.Do(req)
 			if err != nil {
 				log.Printf("Error checking status of task %s: %v", id, err)
-				break
+				time.Sleep(taskPollInterval)
+				continue
+			}
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				raw, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				log.Printf("Non-2xx status while polling task %s: status=%d body=%s", id, resp.StatusCode, string(raw))
+				time.Sleep(taskPollInterval)
+				continue
 			}
 
 			var res struct {
-				Result     *string   `json:"results,omitempty"`
-				StartTime  time.Time `json:"start_time"`
-				FinishTime time.Time `json:"finish_time"`
+				Result     *string    `json:"results,omitempty"`
+				PropletID  string     `json:"proplet_id,omitempty"`
+				CPUTimeMS  *float64   `json:"cpu_time_ms,omitempty"`
+				State      task.State `json:"state"`
+				Error      string     `json:"error,omitempty"`
+				StartTime  time.Time  `json:"start_time"`
+				FinishTime time.Time  `json:"finish_time"`
 			}
-			json.NewDecoder(resp.Body).Decode(&res)
+			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+				resp.Body.Close()
+				log.Printf("Error decoding task %s status response: %v", id, err)
+				time.Sleep(taskPollInterval)
+				continue
+			}
 			resp.Body.Close()
 
-			if res.Result != nil {
-				delay += int(res.FinishTime.Sub(res.StartTime).Milliseconds())
+			isTerminal := res.State == task.Completed || res.State == task.Failed || res.Result != nil || res.Error != ""
+			if isTerminal {
+				if !res.StartTime.IsZero() && !res.FinishTime.IsZero() && res.FinishTime.After(res.StartTime) {
+					delay += int(res.FinishTime.Sub(res.StartTime).Milliseconds())
+				}
+				completedOrFailed++
+
+				if res.CPUTimeMS != nil && res.PropletID != "" {
+					energyScore, err := getEnergyScoreForProplet(client, res.PropletID, *res.CPUTimeMS, propletCoefficientCache)
+					if err != nil {
+						log.Printf("Error calculating energy score for task %s: %v", id, err)
+					} else {
+						totalEnergyScore += energyScore
+						energySamples++
+					}
+				}
 				break
 			}
 
-			time.Sleep(5 * time.Millisecond)
+			time.Sleep(taskPollInterval)
 		}
 	}
 
-	// TODO: expand scoring function
-	if len(taskIds) == 0 {
+	if completedOrFailed == 0 {
 		return math.Inf(-1)
 	}
 
-	averageDelay := float64(delay) / float64(len(taskIds))
+	averageDelay := 1.0 / (1.0 + float64(delay)/float64(completedOrFailed))
 
-	return DefaultConfig.ScoreWeights.delay * averageDelay
+	averageEnergyScore := 0.0
+	if energySamples > 0 {
+		averageEnergyScore = totalEnergyScore / float64(energySamples)
+	}
+
+	return DefaultConfig.ScoreWeights.delay*averageDelay + DefaultConfig.ScoreWeights.energy*averageEnergyScore
+}
+
+func getEnergyScoreForProplet(client *http.Client, propletID string, cpuTimeMS float64, coefficientCache map[string]float64) (float64, error) {
+	coefficientSum, ok := coefficientCache[propletID]
+	if !ok {
+		baseURL := strings.TrimSuffix(DefaultConfig.TasksURL, "/tasks")
+		if baseURL == DefaultConfig.TasksURL {
+			baseURL = strings.TrimRight(DefaultConfig.TasksURL, "/")
+		}
+
+		url := fmt.Sprintf("%s/proplets/%s", baseURL, propletID)
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("get proplet request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			raw, _ := io.ReadAll(resp.Body)
+			return 0, fmt.Errorf("get proplet failed: status=%d body=%s", resp.StatusCode, string(raw))
+		}
+
+		var propletRes struct {
+			PowerModelU float64 `json:"powermodel_u"`
+			PowerModelC float64 `json:"powermodel_c"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&propletRes); err != nil {
+			return 0, fmt.Errorf("decode proplet response: %w", err)
+		}
+
+		coefficientSum = propletRes.PowerModelU + propletRes.PowerModelC
+		coefficientCache[propletID] = coefficientSum
+	}
+
+	return 1.0 / (1.0 + cpuTimeMS*coefficientSum), nil
 }
 
 func createTask(index int, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
