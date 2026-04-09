@@ -62,7 +62,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 				"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
 				"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 				"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
-				"power_score":         1.0 / (1.0 + p.PowerModelC + (p.LatestMetrics.SystemSeconds+p.LatestMetrics.UserSeconds)*p.PowerModelU),
+				"power_score":         1.0 / (1.0 + p.PowerModelC + p.LatestMetrics.Percent*p.PowerModelU),
 				"task_count":          1.0 / (1.0 + float64(p.TaskCount)),
 			}
 		}
