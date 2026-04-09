@@ -82,7 +82,9 @@ type (
 		CpuSystemSeconds   float64
 		TimezoneDifference float64
 		Distance           float64
+		Radiation          float64
 		PowerScore         float64
+		TaskCount          float64
 	}
 
 	Chromosome struct {
@@ -150,6 +152,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 		return proplet.Proplet{}, ErrDeadProplers
 	}
 
+	// Add radiation metric
 	if time.Since(c.LastAPIFetch) > time.Minute*30 {
 		propletCoords := make(map[string][]float64)
 		for _, p := range aliveProplets {
@@ -163,11 +166,11 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 			fmt.Printf("error fetching solar radiations, defaulting to 0: %v\n", err)
 		}
 	}
-
 	for _, p := range aliveProplets {
 		scores[p.ID]["radiation"] = c.PropletRadiations[p.ID]
 	}
 
+	// Apply weights
 	weights := map[string]float64{
 		"cpu_percent":         WEIGHT_CPU_PERCENT,
 		"cpu_user_seconds":    WEIGHT_CPU_USER_SECONDS,
@@ -301,6 +304,8 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 					TimezoneDifference: choose(parent1.Genes.TimezoneDifference, parent2.Genes.TimezoneDifference),
 					Distance:           choose(parent1.Genes.Distance, parent2.Genes.Distance),
 					PowerScore:         choose(parent1.Genes.PowerScore, parent2.Genes.PowerScore),
+					Radiation:          choose(parent1.Genes.Radiation, parent2.Genes.Radiation),
+					TaskCount:          choose(parent1.Genes.TaskCount, parent2.Genes.TaskCount),
 				},
 			}
 			population[i] = child
@@ -366,7 +371,9 @@ func createFirstGeneration(populationSize int) Population {
 			CpuSystemSeconds:   DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 			TimezoneDifference: DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 			Distance:           DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+			Radiation:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 			PowerScore:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+			TaskCount:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 		}
 	}
 	return generation
@@ -388,7 +395,9 @@ func writeBestChromosome(path string, best Chromosome) error {
 	tree.SetPath([]string{"scheduler", "cpu_system_seconds"}, best.Genes.CpuSystemSeconds)
 	tree.SetPath([]string{"scheduler", "timezone_difference"}, best.Genes.TimezoneDifference)
 	tree.SetPath([]string{"scheduler", "distance"}, best.Genes.Distance)
+	tree.SetPath([]string{"scheduler", "radiation"}, best.Genes.Radiation)
 	tree.SetPath([]string{"scheduler", "power_score"}, best.Genes.PowerScore)
+	tree.SetPath([]string{"scheduler", "task_count"}, best.Genes.TaskCount)
 
 	// Keep existing file permissions when possible.
 	mode := os.FileMode(0o644)
@@ -609,7 +618,9 @@ func createTask(index int, genes Genes, client *http.Client, taskFileData map[st
 			"cpu_system_seconds":  genes.CpuSystemSeconds,
 			"timezone_difference": genes.TimezoneDifference,
 			"distance":            genes.Distance,
+			"radiation":           genes.Radiation,
 			"power_score":         genes.PowerScore,
+			"task_count":          genes.TaskCount,
 		},
 	}
 
