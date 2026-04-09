@@ -142,6 +142,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 			"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 			"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
 			"power_score":         1.0 / (1.0 + p.PowerModelU + (p.LatestMetrics.SystemSeconds+p.LatestMetrics.UserSeconds)*p.PowerModelC),
+			"task_count":          1.0 / (1.0 + float64(p.TaskCount)),
 		}
 	}
 
@@ -175,6 +176,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
 		"radiation":           WEIGHT_RADIATION,
 		"power_score":         WEIGHT_POWER_SCORE,
+		"task_count":          WEIGHT_TASK_COUNT,
 	}
 	for key, value := range t.Weights {
 		if _, ok := weights[key]; ok {
