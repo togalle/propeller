@@ -116,7 +116,6 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 	}
 
 	selected := *bestProplet
-	selected.TaskCount += 1
 
 	return selected, nil
 }

@@ -213,7 +213,6 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 	}
 
 	selected := aliveProplets[bestIdx]
-	selected.TaskCount += 1
 
 	return selected, nil
 }
