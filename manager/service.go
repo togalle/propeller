@@ -315,6 +315,17 @@ func (svc *service) TrainGA(ctx context.Context) error {
 	return nil
 }
 
+func (svc *service) TrainPSO(ctx context.Context) error {
+	go func() {
+		if err := scheduler.TrainPSO(ctx, svc.logger); err != nil {
+			svc.logger.ErrorContext(ctx, "failed to train pso scheduler", "error", err)
+			return
+		}
+	}()
+
+	return nil
+}
+
 func (svc *service) Subscribe(ctx context.Context) error {
 	topic := svc.baseTopic + "/#"
 

@@ -114,12 +114,18 @@ func MakeHandler(svc manager.Service, logger *slog.Logger, instanceID string) ht
 	})
 
 	mux.Route("/schedulers", func(r chi.Router) {
-		r.Post("/dynamic/train", otelhttp.NewHandler(kithttp.NewServer(
+		r.Post("/dynamic/train/ga", otelhttp.NewHandler(kithttp.NewServer(
 			trainGAEndpoint(svc),
 			decodeEmptyReq,
 			api.EncodeResponse,
 			opts...,
-		), "train-dynamic-scheduler").ServeHTTP)
+		), "train-dynamic-scheduler-ga").ServeHTTP)
+		r.Post("/dynamic/train/pso", otelhttp.NewHandler(kithttp.NewServer(
+			trainPSOEndpoint(svc),
+			decodeEmptyReq,
+			api.EncodeResponse,
+			opts...,
+		), "train-dynamic-scheduler-pso").ServeHTTP)
 	})
 
 	mux.Get("/health", supermq.Health("manager", instanceID))

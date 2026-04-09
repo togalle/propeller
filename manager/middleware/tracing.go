@@ -125,6 +125,13 @@ func (tm *tracing) TrainGA(ctx context.Context) (err error) {
 	return tm.svc.TrainGA(ctx)
 }
 
+func (tm *tracing) TrainPSO(ctx context.Context) (err error) {
+	ctx, span := tm.tracer.Start(ctx, "train-pso")
+	defer span.End()
+
+	return tm.svc.TrainPSO(ctx)
+}
+
 func (tm *tracing) GetTaskMetrics(ctx context.Context, taskID string, offset, limit uint64) (resp manager.TaskMetricsPage, err error) {
 	ctx, span := tm.tracer.Start(ctx, "get-task-metrics", trace.WithAttributes(
 		attribute.String("task_id", taskID),
