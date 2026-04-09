@@ -41,7 +41,7 @@ var DefaultConfig = Config{
 	WeightMin:      -10,
 	WeightMax:      10,
 	PopulationSize: 50,
-	Generations:    50,
+	Generations:    100,
 	MutationRate:   0.1,
 	ScoreTasks:     50,
 	TasksURL:       "http://localhost:7070/tasks",
@@ -52,7 +52,7 @@ var DefaultConfig = Config{
 	},
 	ScoreWeights: ScoreWeights{
 		delay:  1.0,
-		energy: 1.0,
+		energy: 1.5,
 	},
 }
 
@@ -279,7 +279,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	// Loop over generations
-	for lastBestScore != 0 && math.Abs(population[0].Fitness-lastBestScore) > 1e-6 {
+	for lastBestScore != 0 && math.Abs(population[0].Fitness-lastBestScore) > 1e-3 && generationCount < DefaultConfig.Generations {
 		logger.InfoContext(
 			ctx, fmt.Sprintf("Generation %d complete. Best fitness: %f", generationCount, population[0].Fitness),
 		)
@@ -321,6 +321,8 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 					TimezoneDifference: DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 					Distance:           DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 					PowerScore:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					Radiation:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+					TaskCount:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
 				}
 			}
 		}
@@ -485,8 +487,8 @@ func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData ma
 	var energySamples int
 	var completedOrFailed int
 
-	const taskPollInterval = 10 * time.Millisecond
-	const taskPollTimeout = 2 * time.Minute
+	const taskPollInterval = 20 * time.Millisecond
+	const taskPollTimeout = 30 * time.Second
 
 	// Check if all tasks are done
 	for _, id := range taskIds {
