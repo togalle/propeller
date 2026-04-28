@@ -27,6 +27,7 @@ type Config struct {
 	TasksURL       string
 	Tasks          []Task[any]
 	ScoreWeights   ScoreWeights
+	WarmupTime     time.Duration
 }
 
 var DefaultConfig = Config{
@@ -46,6 +47,7 @@ var DefaultConfig = Config{
 		delay:  1.0,
 		energy: 1.5,
 	},
+	WarmupTime: 1 * time.Minute,
 }
 
 // Types
@@ -113,9 +115,13 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		PowerScore:         0,
 		TaskCount:          0,
 	}
-	for range DefaultConfig.ScoreTasks {
+	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
+	for {
 		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
 			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+		if time.Now().After(warmupDeadline) {
+			break
 		}
 	}
 

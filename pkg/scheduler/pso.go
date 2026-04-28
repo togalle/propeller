@@ -53,23 +53,6 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 		consecutiveEvalFailures = 0
 		return nil
 	}
-
-	// Warm up system to prevent best first generation from being skewed by cold start effects.
-	dummyGenes := Genes{
-		CpuPercent:         0,
-		CpuUserSeconds:     0,
-		CpuSystemSeconds:   0,
-		TimezoneDifference: 0,
-		Distance:           0,
-		Radiation:          0,
-		PowerScore:         0,
-	}
-	for range DefaultConfig.ScoreTasks {
-		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
-			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
-		}
-	}
-
 	// Make history file
 	if _, err := os.Stat("pso_history"); os.IsNotExist(err) {
 		if err := os.Mkdir("pso_history", 0o755); err != nil {
@@ -94,6 +77,26 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 			log.Fatalf("pre-load error [%s]: %v", t.File, err)
 		}
 		taskFileData[t.File] = data
+	}
+
+	// Warm up system to prevent best first generation from being skewed by cold start effects.
+	dummyGenes := Genes{
+		CpuPercent:         0,
+		CpuUserSeconds:     0,
+		CpuSystemSeconds:   0,
+		TimezoneDifference: 0,
+		Distance:           0,
+		Radiation:          0,
+		PowerScore:         0,
+	}
+	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
+	for {
+		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
+			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+		if time.Now().After(warmupDeadline) {
+			break
+		}
 	}
 
 	// Initialize particles
