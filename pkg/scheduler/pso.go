@@ -22,12 +22,12 @@ type psoConfig struct {
 }
 
 var defaultPSOConfig = psoConfig{
-	InertiaWeight:        0.7,
-	CognitiveCoefficient: 1.5,
-	SocialCoefficient:    1.5,
+	InertiaWeight:        0.9,
+	CognitiveCoefficient: 2.0,
+	SocialCoefficient:    1.0,
 	VelocityClampFactor:  0.2,
-	ConvergenceDelta:     1e-3,
-	NoImprovementLimit:   12,
+	ConvergenceDelta:     1e-6,
+	NoImprovementLimit:   10,
 }
 
 type particle struct {
@@ -39,6 +39,38 @@ type particle struct {
 }
 
 func TrainPSO(ctx context.Context, logger *slog.Logger) error {
+	const maxConsecutiveEvalFailures = 10
+	consecutiveEvalFailures := 0
+	recordEvalResult := func(fitness float64) error {
+		if math.IsInf(fitness, -1) || math.IsNaN(fitness) {
+			consecutiveEvalFailures++
+			if consecutiveEvalFailures >= maxConsecutiveEvalFailures {
+				return fmt.Errorf("stopping PSO training after %d consecutive chromosome evaluation failures", consecutiveEvalFailures)
+			}
+			return nil
+		}
+
+		consecutiveEvalFailures = 0
+		return nil
+	}
+
+	// Warm up system to prevent best first generation from being skewed by cold start effects.
+	dummyGenes := Genes{
+		CpuPercent:         0,
+		CpuUserSeconds:     0,
+		CpuSystemSeconds:   0,
+		TimezoneDifference: 0,
+		Distance:           0,
+		Radiation:          0,
+		PowerScore:         0,
+	}
+	for range DefaultConfig.ScoreTasks {
+		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
+			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+	}
+
+	// Make history file
 	if _, err := os.Stat("pso_history"); os.IsNotExist(err) {
 		if err := os.Mkdir("pso_history", 0o755); err != nil {
 			return fmt.Errorf("create pso_history folder: %w", err)
@@ -47,7 +79,6 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 	historyFile := fmt.Sprintf("pso_history/pso_generation_history_%d.json", time.Now().Unix())
 
 	logger.InfoContext(ctx, "Starting PSO training...")
-
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:        100,
@@ -55,7 +86,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 		},
 		Timeout: 30 * time.Second,
 	}
-
+	// Store task binaries
 	taskFileData := make(map[string][]byte)
 	for _, t := range DefaultConfig.Tasks {
 		data, err := os.ReadFile(t.File)
@@ -65,12 +96,16 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 		taskFileData[t.File] = data
 	}
 
+	// Initialize particles
 	particles := createInitialSwarm(DefaultConfig.PopulationSize, defaultPSOConfig)
 	history := make([]GenerationHistoryEntry, 0, DefaultConfig.Generations)
-
 	globalBest := Chromosome{Fitness: math.Inf(-1)}
 	for i := range particles {
-		particles[i].Fitness = scoreChromosome(Chromosome{Genes: particles[i].Position}, httpClient, taskFileData)
+		particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
+		if err := recordEvalResult(particles[i].Fitness); err != nil {
+			logger.ErrorContext(ctx, err.Error())
+			return err
+		}
 		particles[i].BestPosition = particles[i].Position
 		particles[i].BestFitness = particles[i].Fitness
 
@@ -78,7 +113,6 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 			globalBest = Chromosome{Genes: particles[i].Position, Fitness: particles[i].Fitness}
 		}
 	}
-
 	history = append(history, GenerationHistoryEntry{
 		Generation: 1,
 		Timestamp:  time.Now().UTC(),
@@ -89,6 +123,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	// Start optimization loop
 	staleIterations := 0
 	for iter := 2; iter <= DefaultConfig.Generations; iter++ {
 		bestBefore := globalBest.Fitness
@@ -109,7 +144,11 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 				DefaultConfig.WeightMax,
 			)
 
-			particles[i].Fitness = scoreChromosome(Chromosome{Genes: particles[i].Position}, httpClient, taskFileData)
+			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
+			if err := recordEvalResult(particles[i].Fitness); err != nil {
+				logger.ErrorContext(ctx, err.Error())
+				return err
+			}
 
 			if particles[i].Fitness > particles[i].BestFitness {
 				particles[i].BestFitness = particles[i].Fitness
@@ -173,8 +212,9 @@ func createInitialSwarm(populationSize int, cfg psoConfig) []particle {
 	swarm := make([]particle, populationSize)
 	for i := range swarm {
 		swarm[i] = particle{
-			Position: randomGenes(DefaultConfig.WeightMin, DefaultConfig.WeightMax),
-			Velocity: randomGenes(
+			// Random position, velocity, and uninitialized fitness values for each particle in the swarm.
+			Position: RandomGenes(DefaultConfig.WeightMin, DefaultConfig.WeightMax),
+			Velocity: RandomGenes(
 				-(DefaultConfig.WeightMax-DefaultConfig.WeightMin)*cfg.VelocityClampFactor,
 				(DefaultConfig.WeightMax-DefaultConfig.WeightMin)*cfg.VelocityClampFactor,
 			),
@@ -186,21 +226,8 @@ func createInitialSwarm(populationSize int, cfg psoConfig) []particle {
 	return swarm
 }
 
-func randomGenes(min, max float64) Genes {
-	rangeVal := max - min
-	return Genes{
-		CpuPercent:         min + rand.Float64()*rangeVal,
-		CpuUserSeconds:     min + rand.Float64()*rangeVal,
-		CpuSystemSeconds:   min + rand.Float64()*rangeVal,
-		TimezoneDifference: min + rand.Float64()*rangeVal,
-		Distance:           min + rand.Float64()*rangeVal,
-		Radiation:          min + rand.Float64()*rangeVal,
-		PowerScore:         min + rand.Float64()*rangeVal,
-		TaskCount:          min + rand.Float64()*rangeVal,
-	}
-}
-
 func updateVelocity(p particle, globalBest Genes, cfg psoConfig, minWeight, maxWeight float64) Genes {
+	// Clamp velocity to prevent particles from moving too fast and skipping good solutions.
 	maxVelocity := (maxWeight - minWeight) * cfg.VelocityClampFactor
 	clampVelocity := func(v float64) float64 {
 		if v > maxVelocity {
@@ -212,13 +239,13 @@ func updateVelocity(p particle, globalBest Genes, cfg psoConfig, minWeight, maxW
 		return v
 	}
 
+	// PSO velocity update formula: v = w*v + c1*r1*(pBest - position) + c2*r2*(gBest - position)
 	component := func(velocity, position, best, global float64) float64 {
 		r1 := rand.Float64()
 		r2 := rand.Float64()
 		newV := cfg.InertiaWeight*velocity + cfg.CognitiveCoefficient*r1*(best-position) + cfg.SocialCoefficient*r2*(global-position)
 		return clampVelocity(newV)
 	}
-
 	return Genes{
 		CpuPercent:         component(p.Velocity.CpuPercent, p.Position.CpuPercent, p.BestPosition.CpuPercent, globalBest.CpuPercent),
 		CpuUserSeconds:     component(p.Velocity.CpuUserSeconds, p.Position.CpuUserSeconds, p.BestPosition.CpuUserSeconds, globalBest.CpuUserSeconds),

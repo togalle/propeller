@@ -1,25 +1,18 @@
 package scheduler
 
 import (
-	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"math"
 	"math/rand"
-	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/absmach/propeller/task"
 	"github.com/pelletier/go-toml"
 )
 
@@ -41,7 +34,7 @@ var DefaultConfig = Config{
 	WeightMax:      10,
 	PopulationSize: 50,
 	Generations:    100,
-	MutationRate:   0.1,
+	MutationRate:   0.2,
 	ScoreTasks:     50,
 	TasksURL:       "http://localhost:7070/tasks",
 	Tasks: []Task[any]{
@@ -90,11 +83,42 @@ type (
 		Genes   Genes
 		Fitness float64
 	}
-
-	Population []Chromosome
 )
 
 func TrainGA(ctx context.Context, logger *slog.Logger) error {
+	const maxConsecutiveEvalFailures = 10
+	consecutiveEvalFailures := 0
+	recordEvalResult := func(fitness float64) error {
+		if math.IsInf(fitness, -1) || math.IsNaN(fitness) {
+			consecutiveEvalFailures++
+			if consecutiveEvalFailures >= maxConsecutiveEvalFailures {
+				return fmt.Errorf("stopping GA training after %d consecutive chromosome evaluation failures", consecutiveEvalFailures)
+			}
+			return nil
+		}
+
+		consecutiveEvalFailures = 0
+		return nil
+	}
+
+	// Warm up system to prevent best first generation from being skewed by cold start effects.
+	// This is done by scoring a dummy chromosome with all weights set to 0, which should produce average scheduling decisions and thus warm up a representative set of droplets.
+	dummyGenes := Genes{
+		CpuPercent:         0,
+		CpuUserSeconds:     0,
+		CpuSystemSeconds:   0,
+		TimezoneDifference: 0,
+		Distance:           0,
+		Radiation:          0,
+		PowerScore:         0,
+		TaskCount:          0,
+	}
+	for range DefaultConfig.ScoreTasks {
+		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
+			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+	}
+
 	// If folder doesnt exist, create it
 	if _, err := os.Stat("ga_history"); os.IsNotExist(err) {
 		if err := os.Mkdir("ga_history", 0o755); err != nil {
@@ -108,7 +132,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 	)
 
 	// Initialization
-	var population Population = createFirstGeneration(DefaultConfig.PopulationSize)
+	var population = createInitialGeneration(DefaultConfig.PopulationSize)
 	var httpClient = &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:        100,
@@ -124,7 +148,6 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 		taskFileData[t.File] = data
 	}
-	lastBestScore := math.Inf(-1)
 	generationCount := 1
 	history := make([]GenerationHistoryEntry, 0)
 
@@ -134,7 +157,11 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 
 	// Score
 	for i := range DefaultConfig.PopulationSize {
-		population[i].Fitness = scoreChromosome(population[i], httpClient, taskFileData)
+		population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
+		if err := recordEvalResult(population[i].Fitness); err != nil {
+			logger.ErrorContext(ctx, err.Error())
+			return err
+		}
 	}
 
 	// Sort
@@ -152,13 +179,15 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	staleIterations := 0
+
 	// Loop over generations
-	for lastBestScore != 0 && math.Abs(population[0].Fitness-lastBestScore) > 1e-3 && generationCount < DefaultConfig.Generations {
+	for generationCount < DefaultConfig.Generations {
+		bestBefore := population[0].Fitness
+
 		logger.InfoContext(
 			ctx, fmt.Sprintf("Generation %d complete. Best fitness: %f", generationCount, population[0].Fitness),
 		)
-
-		lastBestScore = population[0].Fitness
 
 		// Crossover
 		for i := DefaultConfig.PopulationSize / 2; i < DefaultConfig.PopulationSize; i++ {
@@ -186,24 +215,42 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 
 		// Mutate
-		for i := 0; i < DefaultConfig.PopulationSize; i++ {
+		mutateGene := func(v float64) float64 {
 			if rand.Float64() < DefaultConfig.MutationRate {
-				population[i].Genes = Genes{
-					CpuPercent:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					CpuUserSeconds:     DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					CpuSystemSeconds:   DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					TimezoneDifference: DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					Distance:           DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					PowerScore:         DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					Radiation:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
-					TaskCount:          DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin),
+				// Gaussian mutation around current value, then clamp.
+				sigma := (DefaultConfig.WeightMax - DefaultConfig.WeightMin) * 0.1 // 10% of the weight range
+				mutated := v + rand.NormFloat64()*sigma
+				if mutated < DefaultConfig.WeightMin {
+					return DefaultConfig.WeightMin
 				}
+				if mutated > DefaultConfig.WeightMax {
+					return DefaultConfig.WeightMax
+				}
+				return mutated
+			}
+			return v
+		}
+		for i := DefaultConfig.PopulationSize / 2; i < DefaultConfig.PopulationSize; i++ {
+			g := population[i].Genes
+			population[i].Genes = Genes{
+				CpuPercent:         mutateGene(g.CpuPercent),
+				CpuUserSeconds:     mutateGene(g.CpuUserSeconds),
+				CpuSystemSeconds:   mutateGene(g.CpuSystemSeconds),
+				TimezoneDifference: mutateGene(g.TimezoneDifference),
+				Distance:           mutateGene(g.Distance),
+				PowerScore:         mutateGene(g.PowerScore),
+				Radiation:          mutateGene(g.Radiation),
+				TaskCount:          mutateGene(g.TaskCount),
 			}
 		}
 
 		// Score
 		for i := range DefaultConfig.PopulationSize {
-			population[i].Fitness = scoreChromosome(population[i], httpClient, taskFileData)
+			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
+			if err := recordEvalResult(population[i].Fitness); err != nil {
+				logger.ErrorContext(ctx, err.Error())
+				return err
+			}
 		}
 
 		// Sort
@@ -220,6 +267,23 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		})
 		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
 			return err
+		}
+
+		improvement := math.Abs(population[0].Fitness - bestBefore)
+		if improvement <= defaultPSOConfig.ConvergenceDelta {
+			staleIterations++
+		} else {
+			staleIterations = 0
+		}
+
+		if staleIterations >= defaultPSOConfig.NoImprovementLimit {
+			logger.InfoContext(
+				ctx,
+				"Stopping GA early due to convergence",
+				"generation", generationCount,
+				"best_fitness", population[0].Fitness,
+			)
+			break
 		}
 	}
 
@@ -238,22 +302,27 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 	return nil
 }
 
-func createFirstGeneration(populationSize int) Population {
-	generation := make(Population, populationSize)
+func RandomGenes(min, max float64) Genes {
+	rangeVal := max - min
 	rnd := func() float64 {
-		return DefaultConfig.WeightMin + rand.Float64()*(DefaultConfig.WeightMax-DefaultConfig.WeightMin)
+		return min + rand.Float64()*rangeVal
 	}
+	return Genes{
+		CpuPercent:         rnd(),
+		CpuUserSeconds:     rnd(),
+		CpuSystemSeconds:   rnd(),
+		TimezoneDifference: rnd(),
+		Distance:           rnd(),
+		Radiation:          rnd(),
+		PowerScore:         rnd(),
+		TaskCount:          rnd(),
+	}
+}
+
+func createInitialGeneration(populationSize int) []Chromosome {
+	generation := make([]Chromosome, populationSize)
 	for chromosome := range populationSize {
-		generation[chromosome].Genes = Genes{
-			CpuPercent:         rnd(),
-			CpuUserSeconds:     rnd(),
-			CpuSystemSeconds:   rnd(),
-			TimezoneDifference: rnd(),
-			Distance:           rnd(),
-			Radiation:          rnd(),
-			PowerScore:         rnd(),
-			TaskCount:          rnd(),
-		}
+		generation[chromosome].Genes = RandomGenes(DefaultConfig.WeightMin, DefaultConfig.WeightMax)
 	}
 	return generation
 }
@@ -289,281 +358,4 @@ func writeBestChromosome(path string, best Chromosome) error {
 	}
 
 	return nil
-}
-
-func writeGenerationHistory(path string, history []GenerationHistoryEntry) error {
-	b, err := json.MarshalIndent(history, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal generation history: %w", err)
-	}
-
-	mode := os.FileMode(0o644)
-	if fi, err := os.Stat(path); err == nil {
-		mode = fi.Mode()
-	}
-
-	if err := os.WriteFile(path, b, mode); err != nil {
-		return fmt.Errorf("write generation history: %w", err)
-	}
-
-	return nil
-}
-
-func scoreChromosome(chromosome Chromosome, client *http.Client, taskFileData map[string][]byte) float64 {
-	// Execute tasks using the weights in the chromosome and measure performance to calculate fitness.
-	var taskIds []string
-	propletCoefficientCache := make(map[string]float64)
-
-	// Create all tasks
-	for range DefaultConfig.ScoreTasks {
-		// Randomly choose test from all options
-		taskIndex := rand.Intn(len(DefaultConfig.Tasks))
-		taskID, err := createTask(taskIndex, chromosome.Genes, client, taskFileData)
-		if err != nil {
-			log.Printf("Error creating task: %v", err)
-			continue
-		}
-		taskIds = append(taskIds, taskID)
-	}
-
-	// Start all tasks
-	for _, id := range taskIds {
-		var started bool
-		for attempt := range 2 {
-			req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/start", DefaultConfig.TasksURL, id), nil)
-			resp, err := client.Do(req)
-			if err != nil {
-				log.Printf("Error starting task %s (attempt %d): %v", id, attempt+1, err)
-				break
-			}
-
-			var result struct {
-				Started bool `json:"started"`
-			}
-			json.NewDecoder(resp.Body).Decode(&result)
-			resp.Body.Close()
-
-			if result.Started {
-				started = true
-				break
-			}
-
-			if attempt < 1 {
-				log.Printf("Task %s not started, retrying after delay...", id)
-				time.Sleep(2 * time.Second)
-			}
-		}
-
-		if !started {
-			log.Printf("Failed to start task %s after retries", id)
-		}
-	}
-
-	var delay int
-	var totalEnergyScore float64
-	var energySamples int
-	var completedOrFailed int
-
-	const taskPollInterval = 20 * time.Millisecond
-	const taskPollTimeout = 30 * time.Second
-
-	// Check if all tasks are done
-	for _, id := range taskIds {
-		deadline := time.Now().Add(taskPollTimeout)
-
-		for {
-			if time.Now().After(deadline) {
-				log.Printf("Timeout waiting for task %s to complete during GA scoring", id)
-				break
-			}
-
-			req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", DefaultConfig.TasksURL, id), nil)
-			resp, err := client.Do(req)
-			if err != nil {
-				log.Printf("Error checking status of task %s: %v", id, err)
-				time.Sleep(taskPollInterval)
-				continue
-			}
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				raw, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				log.Printf("Non-2xx status while polling task %s: status=%d body=%s", id, resp.StatusCode, string(raw))
-				time.Sleep(taskPollInterval)
-				continue
-			}
-
-			var res struct {
-				Result     *string    `json:"results,omitempty"`
-				PropletID  string     `json:"proplet_id,omitempty"`
-				CPUTimeMS  *float64   `json:"cpu_time_ms,omitempty"`
-				State      task.State `json:"state"`
-				Error      string     `json:"error,omitempty"`
-				StartTime  time.Time  `json:"start_time"`
-				FinishTime time.Time  `json:"finish_time"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-				resp.Body.Close()
-				log.Printf("Error decoding task %s status response: %v", id, err)
-				time.Sleep(taskPollInterval)
-				continue
-			}
-			resp.Body.Close()
-
-			isTerminal := res.State == task.Completed || res.State == task.Failed || res.Result != nil || res.Error != ""
-			if isTerminal {
-				if !res.StartTime.IsZero() && !res.FinishTime.IsZero() && res.FinishTime.After(res.StartTime) {
-					delay += int(res.FinishTime.Sub(res.StartTime).Milliseconds())
-				}
-				completedOrFailed++
-
-				if res.CPUTimeMS != nil && res.PropletID != "" {
-					energyScore, err := getEnergyScoreForProplet(client, res.PropletID, *res.CPUTimeMS, propletCoefficientCache)
-					if err != nil {
-						log.Printf("Error calculating energy score for task %s: %v", id, err)
-					} else {
-						totalEnergyScore += energyScore
-						energySamples++
-					}
-				}
-				break
-			}
-
-			time.Sleep(taskPollInterval)
-		}
-	}
-
-	if completedOrFailed == 0 {
-		return math.Inf(-1)
-	}
-
-	averageDelay := 1.0 / (1.0 + float64(delay)/float64(completedOrFailed))
-
-	averageEnergyScore := 0.0
-	if energySamples > 0 {
-		averageEnergyScore = totalEnergyScore / float64(energySamples)
-	}
-
-	return DefaultConfig.ScoreWeights.delay*averageDelay + DefaultConfig.ScoreWeights.energy*averageEnergyScore
-}
-
-func getEnergyScoreForProplet(client *http.Client, propletID string, cpuTimeMS float64, coefficientCache map[string]float64) (float64, error) {
-	coefficientSum, ok := coefficientCache[propletID]
-	if !ok {
-		baseURL := strings.TrimSuffix(DefaultConfig.TasksURL, "/tasks")
-		if baseURL == DefaultConfig.TasksURL {
-			baseURL = strings.TrimRight(DefaultConfig.TasksURL, "/")
-		}
-
-		url := fmt.Sprintf("%s/proplets/%s", baseURL, propletID)
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			return 0, fmt.Errorf("get proplet request failed: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			raw, _ := io.ReadAll(resp.Body)
-			return 0, fmt.Errorf("get proplet failed: status=%d body=%s", resp.StatusCode, string(raw))
-		}
-
-		var propletRes struct {
-			PowerModelU float64 `json:"powermodel_u"`
-			PowerModelC float64 `json:"powermodel_c"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&propletRes); err != nil {
-			return 0, fmt.Errorf("decode proplet response: %w", err)
-		}
-
-		coefficientSum = propletRes.PowerModelU + propletRes.PowerModelC
-		coefficientCache[propletID] = coefficientSum
-	}
-
-	return 1.0 / (1.0 + cpuTimeMS*coefficientSum), nil
-}
-
-func createTask(index int, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
-	task := DefaultConfig.Tasks[index]
-
-	body := map[string]any{
-		"name":      task.Name,
-		"inputs":    task.Inputs, // must be []uint64 in Task struct
-		"scheduler": "dynamic",
-		"weights": map[string]float64{
-			"cpu_percent":         genes.CpuPercent,
-			"cpu_user_seconds":    genes.CpuUserSeconds,
-			"cpu_system_seconds":  genes.CpuSystemSeconds,
-			"timezone_difference": genes.TimezoneDifference,
-			"distance":            genes.Distance,
-			"radiation":           genes.Radiation,
-			"power_score":         genes.PowerScore,
-			"task_count":          genes.TaskCount,
-		},
-	}
-
-	b, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("marshal create task body: %w", err)
-	}
-
-	resp, err := client.Post(DefaultConfig.TasksURL, "application/json", bytes.NewBuffer(b))
-	if err != nil {
-		return "", fmt.Errorf("create task request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("create task failed: status=%d body=%s", resp.StatusCode, string(raw))
-	}
-
-	var res struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", fmt.Errorf("decode create task response: %w", err)
-	}
-	if res.ID == "" {
-		return "", fmt.Errorf("create task returned empty id")
-	}
-
-	fileData, ok := taskFileData[task.File]
-	if !ok || len(fileData) == 0 {
-		return "", fmt.Errorf("missing preloaded wasm file data for %s", task.File)
-	}
-
-	putBody := &bytes.Buffer{}
-	writer := multipart.NewWriter(putBody)
-
-	part, err := writer.CreateFormFile("file", filepath.Base(task.File))
-	if err != nil {
-		return "", fmt.Errorf("create multipart file part: %w", err)
-	}
-	if _, err := part.Write(fileData); err != nil {
-		return "", fmt.Errorf("write wasm payload: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("finalize multipart payload: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/upload", DefaultConfig.TasksURL, res.ID), putBody)
-	if err != nil {
-		return "", fmt.Errorf("build upload request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	respPut, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("upload wasm request failed: %w", err)
-	}
-	defer respPut.Body.Close()
-
-	if respPut.StatusCode < 200 || respPut.StatusCode >= 300 {
-		raw, _ := io.ReadAll(respPut.Body)
-		return "", fmt.Errorf("upload wasm failed: status=%d body=%s", respPut.StatusCode, string(raw))
-	}
-
-	return res.ID, nil
 }

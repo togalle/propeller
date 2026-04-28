@@ -1,0 +1,15 @@
+[
+  {
+    "generation": 1,
+    "timestamp": "2026-04-08T19:38:29.296819786Z",
+    "best_score": 0.11914543345736452,
+    "weights": {
+      "CpuPercent": -0.8464549162386845,
+      "CpuUserSeconds": 6.352518979496274,
+      "CpuSystemSeconds": 5.331227044958855,
+      "TimezoneDifference": -9.745759271492348,
+      "Distance": 8.942521790461118,
+      "PowerScore": -7.183691865745079
+    }
+  }
+]
