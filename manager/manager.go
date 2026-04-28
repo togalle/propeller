@@ -19,6 +19,8 @@ type Service interface {
 	DeleteTask(ctx context.Context, taskID string) error
 	StartTask(ctx context.Context, taskID string) error
 	StopTask(ctx context.Context, taskID string) error
+	TrainGA(ctx context.Context) error
+	TrainPSO(ctx context.Context) error
 
 	GetTaskMetrics(ctx context.Context, taskID string, offset, limit uint64) (TaskMetricsPage, error)
 	GetPropletMetrics(ctx context.Context, propletID string, offset, limit uint64) (PropletMetricsPage, error)

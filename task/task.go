@@ -47,6 +47,7 @@ type Task struct {
 	KBSResourcePath   string                     `json:"kbs_resource_path,omitempty"`
 	PropletID         string                     `json:"proplet_id,omitempty"`
 	Results           any                        `json:"results,omitempty"`
+	CPUTimeMS         *float64                   `json:"cpu_time_ms,omitempty"`
 	Error             string                     `json:"error,omitempty"`
 	MonitoringProfile *proplet.MonitoringProfile `json:"monitoring_profile,omitempty"`
 	StartTime         time.Time                  `json:"start_time"`
@@ -57,6 +58,7 @@ type Task struct {
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
 	Scheduler         string                     `json:"scheduler,omitempty"`
+	Weights           map[string]float64         `json:"weights,omitempty"`
 }
 
 type TaskPage struct {

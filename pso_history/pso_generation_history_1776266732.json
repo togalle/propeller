@@ -1,0 +1,197 @@
+[
+  {
+    "generation": 1,
+    "timestamp": "2026-04-15T15:33:05.189044939Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 2,
+    "timestamp": "2026-04-15T15:41:15.606724316Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 3,
+    "timestamp": "2026-04-15T15:49:11.639229222Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 4,
+    "timestamp": "2026-04-15T15:56:26.892166044Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 5,
+    "timestamp": "2026-04-15T16:02:17.083966841Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 6,
+    "timestamp": "2026-04-15T16:07:56.450383464Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 7,
+    "timestamp": "2026-04-15T16:13:35.736391085Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 8,
+    "timestamp": "2026-04-15T16:19:15.038816759Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 9,
+    "timestamp": "2026-04-15T16:24:58.309073757Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 10,
+    "timestamp": "2026-04-15T16:30:38.686538027Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 11,
+    "timestamp": "2026-04-15T16:36:15.347742638Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 12,
+    "timestamp": "2026-04-15T16:41:50.685158637Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  },
+  {
+    "generation": 13,
+    "timestamp": "2026-04-15T16:47:27.121183418Z",
+    "best_score": 0.22193641794446006,
+    "weights": {
+      "CpuPercent": 8.43782812495774,
+      "CpuUserSeconds": 8.64657926142517,
+      "CpuSystemSeconds": 8.764547033260545,
+      "TimezoneDifference": -3.929882113261015,
+      "Distance": -5.991985560361662,
+      "Radiation": -6.86736112163594,
+      "PowerScore": 5.959206840895382,
+      "TaskCount": -8.140622501541175
+    }
+  }
+]

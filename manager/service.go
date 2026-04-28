@@ -224,8 +224,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 		if err != nil {
 			return err
 		}
-		svc.logger.InfoContext(ctx, "selected proplet using custom scheduler",
-			"scheduler", t.Scheduler, "proplet_id", p.ID)
 	} else {
 		switch t.PropletID {
 		case "":
@@ -233,7 +231,6 @@ func (svc *service) StartTask(ctx context.Context, taskID string) error {
 			if err != nil {
 				return err
 			}
-			svc.logger.InfoContext(ctx, "selected proplet for task", "proplet_id", p.ID)
 		default:
 			p, err = svc.GetProplet(ctx, t.PropletID)
 			if err != nil {
@@ -303,6 +300,28 @@ func (svc *service) StopTask(ctx context.Context, taskID string) error {
 	if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func (svc *service) TrainGA(ctx context.Context) error {
+	go func() {
+		if err := scheduler.TrainGA(ctx, svc.logger); err != nil {
+			svc.logger.ErrorContext(ctx, "failed to train dynamic scheduler", "error", err)
+			return
+		}
+	}()
+
+	return nil
+}
+
+func (svc *service) TrainPSO(ctx context.Context) error {
+	go func() {
+		if err := scheduler.TrainPSO(ctx, svc.logger); err != nil {
+			svc.logger.ErrorContext(ctx, "failed to train pso scheduler", "error", err)
+			return
+		}
+	}()
 
 	return nil
 }
@@ -510,6 +529,10 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 
 	if errMsg, ok := msg["error"].(string); ok && errMsg != "" {
 		t.Error = errMsg
+	}
+
+	if cpuTimeMS, ok := msg["cpu_time_ms"].(float64); ok {
+		t.CPUTimeMS = &cpuTimeMS
 	}
 
 	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {

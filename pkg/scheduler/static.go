@@ -16,6 +16,7 @@ const WEIGHT_DISTANCE = 0
 const WEIGHT_TIMEZONE_DIFFERENCE = 0
 const WEIGHT_RADIATION = 0
 const WEIGHT_POWER_SCORE = 0
+const WEIGHT_TASK_COUNT = 1
 
 type staticScheduler struct {
 	ManagerCoordinates []float64
@@ -61,7 +62,8 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 				"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
 				"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 				"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
-				"power_score":         1.0 / (1.0 + p.PowerModelU + (p.LatestMetrics.SystemSeconds+p.LatestMetrics.UserSeconds)*p.PowerModelC),
+				"power_score":         1.0 / (1.0 + p.PowerModelC + p.LatestMetrics.Percent*p.PowerModelU),
+				"task_count":          1.0 / (1.0 + float64(p.TaskCount)),
 			}
 		}
 	}
@@ -98,6 +100,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
 		"radiation":           WEIGHT_RADIATION,
 		"power_score":         WEIGHT_POWER_SCORE,
+		"task_count":          WEIGHT_TASK_COUNT,
 	}
 
 	for _, p := range aliveProplets {
@@ -113,7 +116,6 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 	}
 
 	selected := *bestProplet
-	selected.TaskCount += 1
 
 	return selected, nil
 }

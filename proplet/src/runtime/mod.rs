@@ -36,6 +36,13 @@ pub trait Runtime: Send + Sync {
     /// - The task does not exist or is not running
     /// - The platform does not support PID retrieval
     async fn get_pid(&self, id: &str) -> Result<Option<u32>>;
+
+    /// Returns and clears the measured CPU time for a completed task, in milliseconds.
+    ///
+    /// Runtimes that cannot provide per-task CPU time should return `None`.
+    async fn take_cpu_time_ms(&self, _id: &str) -> Result<Option<f64>> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone)]

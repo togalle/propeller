@@ -1,0 +1,45 @@
+# c is constant power draw, u is utilization-proportional power draw (https://hal.science/hal-03912723v1)
+
+[manager]
+  channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  client_id = "586a605d-7a04-4558-aced-fabb3a2640d4"
+  client_key = "4a2ca424-f0d3-47a1-af61-5a845062e179"
+  domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
+
+[proplet1]
+  channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  client_id = "59ada359-5dfd-4fa1-9413-e7f170a8eeb0"
+  client_key = "89153268-d8af-4161-8fae-3dafd858e34f"
+  domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
+  powermodel_c = 4.403192179893827
+  powermodel_u = 3.457855981342954
+
+[proplet2]
+  channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  client_id = "2b03336f-4d74-4105-8798-7f41b86507ee"
+  client_key = "5222bba1-2496-4243-8a4a-3cfe68242c10"
+  domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
+  powermodel_c = 2.243353676359355
+  powermodel_u = 3.484191712285443
+
+[proplet3]
+  channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  client_id = "3b03336f-4d74-4105-8798-7f41b86507ee"
+  client_key = "3222bba1-2496-4243-8a4a-3cfe68242c10"
+  domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
+  powermodel_c = 1.078203625009793
+  powermodel_u = 3.477373034437569
+
+[proxy]
+  channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  client_id = "59ada359-5dfd-4fa1-9413-e7f170a8eeb0"
+  client_key = "89153268-d8af-4161-8fae-3dafd858e34f"
+  domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
+
+[scheduler]
+  cpu_percent = 6.173586329734658
+  cpu_system_seconds = 2.7287840886390224
+  cpu_user_seconds = -7.284820865774204
+  distance = -4.180899589660209
+  power_score = -4.77804916391226
+  timezone_difference = -3.7832849482140833

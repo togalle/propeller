@@ -15,6 +15,7 @@ pub struct HostRuntime {
     runtime_path: String,
     processes: Arc<Mutex<HashMap<String, Child>>>,
     pids: Arc<Mutex<HashMap<String, u32>>>,
+    completed_cpu_time_ms: Arc<Mutex<HashMap<String, f64>>>,
 }
 
 impl HostRuntime {
@@ -23,7 +24,36 @@ impl HostRuntime {
             runtime_path,
             processes: Arc::new(Mutex::new(HashMap::new())),
             pids: Arc::new(Mutex::new(HashMap::new())),
+            completed_cpu_time_ms: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn read_process_cpu_time_ms(pid: u32) -> Option<f64> {
+        let stat_path = format!("/proc/{pid}/stat");
+        let stat = std::fs::read_to_string(stat_path).ok()?;
+
+        // /proc/<pid>/stat field layout includes a command name in parentheses that may
+        // contain spaces; split after the closing ") " to parse fixed-position fields.
+        let after_comm = stat.split_once(") ")?.1;
+        let fields: Vec<&str> = after_comm.split_whitespace().collect();
+
+        let utime_ticks: f64 = fields.get(11)?.parse().ok()?;
+        let stime_ticks: f64 = fields.get(12)?.parse().ok()?;
+        let total_ticks = utime_ticks + stime_ticks;
+
+        let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        if ticks_per_second <= 0 {
+            return None;
+        }
+
+        let ticks_per_second = ticks_per_second as f64;
+        Some((total_ticks / ticks_per_second) * 1000.0)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn read_process_cpu_time_ms(_pid: u32) -> Option<f64> {
+        None
     }
 
     async fn create_temp_wasm_file(&self, id: &str, wasm_binary: &[u8]) -> Result<PathBuf> {
@@ -109,8 +139,11 @@ impl Runtime for HostRuntime {
 
             let processes = self.processes.clone();
             let pids = self.pids.clone();
+            let completed_cpu_time_ms = self.completed_cpu_time_ms.clone();
             let temp_file_clone = temp_file.clone();
             let task_id = config.id.clone();
+            let pid_for_cpu = pid;
+            let mut last_cpu_time_ms = pid_for_cpu.and_then(Self::read_process_cpu_time_ms);
 
             tokio::spawn(async move {
                 // Poll the process status periodically instead of blocking on wait()
@@ -125,10 +158,23 @@ impl Runtime for HostRuntime {
                             match process.try_wait() {
                                 Ok(Some(status)) => {
                                     info!("Daemon task {} exited with status: {}", task_id, status);
+                                    if let Some(cpu_time_ms) = last_cpu_time_ms {
+                                        completed_cpu_time_ms
+                                            .lock()
+                                            .await
+                                            .insert(task_id.clone(), cpu_time_ms);
+                                    }
                                     should_cleanup = true;
                                 }
                                 Ok(None) => {
                                     // Process is still running, continue polling
+                                    if let Some(pid_val) = pid_for_cpu {
+                                        if let Some(cpu_time_ms) =
+                                            Self::read_process_cpu_time_ms(pid_val)
+                                        {
+                                            last_cpu_time_ms = Some(cpu_time_ms);
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     error!("Daemon task {} try_wait error: {}", task_id, e);
@@ -158,6 +204,8 @@ impl Runtime for HostRuntime {
                 "Running in synchronous mode, waiting for task: {}",
                 config.id
             );
+
+            let mut last_cpu_time_ms = pid.and_then(Self::read_process_cpu_time_ms);
 
             // Keep the child in the processes map during wait to allow interruption via stop_app
             // We'll poll for completion instead of blocking with wait_with_output
@@ -211,6 +259,11 @@ impl Runtime for HostRuntime {
                         }
                         Ok(None) => {
                             // Process is still running, continue polling
+                            if let Some(pid_val) = pid {
+                                if let Some(cpu_time_ms) = Self::read_process_cpu_time_ms(pid_val) {
+                                    last_cpu_time_ms = Some(cpu_time_ms);
+                                }
+                            }
                         }
                         Err(e) => {
                             // Error checking process status
@@ -232,6 +285,14 @@ impl Runtime for HostRuntime {
             info!("Process completed for task: {}", config.id);
 
             self.pids.lock().await.remove(&config.id);
+
+            if let Some(cpu_time_ms) = last_cpu_time_ms {
+                self.completed_cpu_time_ms
+                    .lock()
+                    .await
+                    .insert(config.id.clone(), cpu_time_ms);
+            }
+
             self.cleanup_temp_file(temp_file).await?;
 
             if !output.status.success() {
@@ -252,6 +313,7 @@ impl Runtime for HostRuntime {
         info!("Stopping Host runtime app: task_id={}", id);
 
         self.pids.lock().await.remove(&id);
+        self.completed_cpu_time_ms.lock().await.remove(&id);
 
         let mut processes = self.processes.lock().await;
         if let Some(mut child) = processes.remove(&id) {
@@ -276,6 +338,18 @@ impl Runtime for HostRuntime {
         } else {
             Ok(None)
         }
+    }
+
+    async fn take_cpu_time_ms(&self, id: &str) -> Result<Option<f64>> {
+        if let Some(cpu_time_ms) = self.completed_cpu_time_ms.lock().await.remove(id) {
+            return Ok(Some(cpu_time_ms));
+        }
+
+        if let Some(pid) = self.get_pid(id).await? {
+            return Ok(Self::read_process_cpu_time_ms(pid));
+        }
+
+        Ok(None)
     }
 }
 

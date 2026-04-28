@@ -1,40 +1,46 @@
-# SuperMQ Configuration
 
 [manager]
-domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
-client_id = "586a605d-7a04-4558-aced-fabb3a2640d4"
-client_key = "4a2ca424-f0d3-47a1-af61-5a845062e179"
-channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
+  client_id = "a2afa44a-84f7-4d6b-b8cc-717f259f73de"
+  client_key = "cdb21e97-49fc-43e3-a677-b411aa1cd765"
+  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
 
-# rbp5b1.0-64
 [proplet1]
-domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
-client_id = "59ada359-5dfd-4fa1-9413-e7f170a8eeb0"
-client_key = "89153268-d8af-4161-8fae-3dafd858e34f"
-channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-powermodel_u = 3.457855981342954
-powermodel_c = 4.403192179893827
+  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
+  client_id = "6b2250a7-4727-485a-9e60-927aa23f1eb7"
+  client_key = "141f0b6c-2ac8-4a0a-9a4d-e80d7f0ab8fd"
+  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  powermodel_c = 4.403192179893827
+  powermodel_u = 3.457855981342954
 
-# rbp4b1.2
 [proplet2]
-domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
-client_id = "2b03336f-4d74-4105-8798-7f41b86507ee"
-client_key = "5222bba1-2496-4243-8a4a-3cfe68242c10"
-channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-powermodel_u = 3.484191712285443
-powermodel_c = 2.243353676359355
+  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
+  client_id = "17992190-0b49-45f5-8731-eab18a70a9f5"
+  client_key = "8f4c12e8-bc8e-4471-bf37-674c681acb87"
+  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  powermodel_c = 2.243353676359355
+  powermodel_u = 3.484191712285443
 
-# rbp3b1.2
 [proplet3]
-domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
-client_id = "3b03336f-4d74-4105-8798-7f41b86507ee"
-client_key = "3222bba1-2496-4243-8a4a-3cfe68242c10"
-channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
-powermodel_u = 3.477373034437569
-powermodel_c = 1.078203625009793
+  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
+  client_id = "5e111c68-ea9d-45f5-9d7f-f60e70a9ec6b"
+  client_key = "a2ea9d48-2d7a-4d0a-bd30-993fc6a92311"
+  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  powermodel_c = 1.078203625009793
+  powermodel_u = 3.477373034437569
 
 [proxy]
-domain_id = "2da944f3-5980-4740-8eea-e1142643cd36"
-client_id = "59ada359-5dfd-4fa1-9413-e7f170a8eeb0"
-client_key = "89153268-d8af-4161-8fae-3dafd858e34f"
-channel_id = "1c5bc25a-cd9d-4e7e-a6a5-6a049beec5f8"
+  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
+  client_id = "6b2250a7-4727-485a-9e60-927aa23f1eb7"
+  client_key = "141f0b6c-2ac8-4a0a-9a4d-e80d7f0ab8fd"
+  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+
+[scheduler]
+  cpu_percent = -8.595947329580559
+  cpu_system_seconds = 6.40421427447513
+  cpu_user_seconds = 1.7310397629438317
+  distance = -3.5113792726394326
+  power_score = 6.072032896262122
+  radiation = 0.04081552328153393
+  task_count = 0.8591376656743179
+  timezone_difference = 6.364022020520007
