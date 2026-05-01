@@ -226,7 +226,7 @@ func (lm *loggingMiddleware) StopTask(ctx context.Context, id string) (err error
 	return lm.svc.StopTask(ctx, id)
 }
 
-func (lm *loggingMiddleware) TrainGA(ctx context.Context) (err error) {
+func (lm *loggingMiddleware) TrainGA(ctx context.Context, historyFilePath string) (err error) {
 	defer func(begin time.Time) {
 		args := []any{
 			slog.String("duration", time.Since(begin).String()),
@@ -240,10 +240,10 @@ func (lm *loggingMiddleware) TrainGA(ctx context.Context) (err error) {
 		lm.logger.Info("Training dynamic scheduler started", args...)
 	}(time.Now())
 
-	return lm.svc.TrainGA(ctx)
+	return lm.svc.TrainGA(ctx, historyFilePath)
 }
 
-func (lm *loggingMiddleware) TrainPSO(ctx context.Context) (err error) {
+func (lm *loggingMiddleware) TrainPSO(ctx context.Context, historyFilePath string) (err error) {
 	defer func(begin time.Time) {
 		args := []any{
 			slog.String("duration", time.Since(begin).String()),
@@ -257,7 +257,7 @@ func (lm *loggingMiddleware) TrainPSO(ctx context.Context) (err error) {
 		lm.logger.Info("Training pso scheduler started", args...)
 	}(time.Now())
 
-	return lm.svc.TrainPSO(ctx)
+	return lm.svc.TrainPSO(ctx, historyFilePath)
 }
 
 func (lm *loggingMiddleware) GetTaskMetrics(ctx context.Context, taskID string, offset, limit uint64) (resp manager.TaskMetricsPage, err error) {

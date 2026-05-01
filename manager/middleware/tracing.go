@@ -118,18 +118,18 @@ func (tm *tracing) StopTask(ctx context.Context, id string) (err error) {
 	return tm.svc.StopTask(ctx, id)
 }
 
-func (tm *tracing) TrainGA(ctx context.Context) (err error) {
+func (tm *tracing) TrainGA(ctx context.Context, historyFilePath string) (err error) {
 	ctx, span := tm.tracer.Start(ctx, "train-ga")
 	defer span.End()
 
-	return tm.svc.TrainGA(ctx)
+	return tm.svc.TrainGA(ctx, historyFilePath)
 }
 
-func (tm *tracing) TrainPSO(ctx context.Context) (err error) {
+func (tm *tracing) TrainPSO(ctx context.Context, historyFilePath string) (err error) {
 	ctx, span := tm.tracer.Start(ctx, "train-pso")
 	defer span.End()
 
-	return tm.svc.TrainPSO(ctx)
+	return tm.svc.TrainPSO(ctx, historyFilePath)
 }
 
 func (tm *tracing) GetTaskMetrics(ctx context.Context, taskID string, offset, limit uint64) (resp manager.TaskMetricsPage, err error) {

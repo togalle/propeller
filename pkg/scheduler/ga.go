@@ -3,6 +3,7 @@ package scheduler
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -58,10 +59,11 @@ type (
 	}
 
 	GenerationHistoryEntry struct {
-		Generation int       `json:"generation"`
-		Timestamp  time.Time `json:"timestamp"`
-		BestScore  float64   `json:"best_score"`
-		Weights    Genes     `json:"weights"`
+		Generation int         `json:"generation"`
+		Timestamp  time.Time   `json:"timestamp"`
+		BestScore  float64     `json:"best_score"`
+		Weights    Genes       `json:"weights"`
+		Population interface{} `json:"population,omitempty"`
 	}
 
 	Task[T any] struct {
@@ -87,7 +89,7 @@ type (
 	}
 )
 
-func TrainGA(ctx context.Context, logger *slog.Logger) error {
+func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) error {
 	const maxConsecutiveEvalFailures = 10
 	consecutiveEvalFailures := 0
 	recordEvalResult := func(fitness float64) error {
@@ -125,20 +127,64 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 
-	// If folder doesnt exist, create it
-	if _, err := os.Stat("ga_history"); os.IsNotExist(err) {
-		if err := os.Mkdir("ga_history", 0o755); err != nil {
-			return fmt.Errorf("create ga_history folder: %w", err)
+	var generationHistoryFile string
+	var history []GenerationHistoryEntry
+	var generationCount int
+	var population []Chromosome
+
+	// Load from existing history file if provided
+	if historyFilePath != "" {
+		data, err := os.ReadFile(historyFilePath)
+		if err != nil {
+			return fmt.Errorf("read history file: %w", err)
 		}
+
+		if err := json.Unmarshal(data, &history); err != nil {
+			return fmt.Errorf("parse history file: %w", err)
+		}
+
+		if len(history) == 0 {
+			return fmt.Errorf("history file is empty")
+		}
+
+		lastEntry := history[len(history)-1]
+		if lastEntry.Population == nil {
+			return fmt.Errorf("final generation in history file has no population")
+		}
+
+		// Unmarshal population from interface{}
+		populationData, err := json.Marshal(lastEntry.Population)
+		if err != nil {
+			return fmt.Errorf("marshal population: %w", err)
+		}
+		if err := json.Unmarshal(populationData, &population); err != nil {
+			return fmt.Errorf("unmarshal population: %w", err)
+		}
+
+		generationHistoryFile = historyFilePath
+		generationCount = lastEntry.Generation
+
+		logger.InfoContext(ctx, "Loaded history file", "path", historyFilePath, "entries", len(history), "from_generation", generationCount)
+	} else {
+		// Create new history file
+		if _, err := os.Stat("ga_history"); os.IsNotExist(err) {
+			if err := os.Mkdir("ga_history", 0o755); err != nil {
+				return fmt.Errorf("create ga_history folder: %w", err)
+			}
+		}
+		generationHistoryFile = fmt.Sprintf("ga_history/ga_generation_history_%d.json", time.Now().Unix())
+		history = make([]GenerationHistoryEntry, 0)
+		generationCount = 0
 	}
-	generationHistoryFile := fmt.Sprintf("ga_history/ga_generation_history_%d.json", time.Now().Unix())
 
 	logger.InfoContext(
 		ctx, "Starting GA training...\nCreating first generation...",
 	)
 
 	// Initialization
-	var population = createInitialGeneration(DefaultConfig.PopulationSize)
+	if len(population) == 0 {
+		population = createInitialGeneration(DefaultConfig.PopulationSize)
+	}
 	var httpClient = &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:        100,
@@ -154,35 +200,44 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 		}
 		taskFileData[t.File] = data
 	}
-	generationCount := 1
-	history := make([]GenerationHistoryEntry, 0)
+	if generationCount == 0 {
+		generationCount = 1
+	}
 
 	logger.InfoContext(
 		ctx, "Starting generation loop...",
 	)
 
-	// Score
-	for i := range DefaultConfig.PopulationSize {
-		population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
-		if err := recordEvalResult(population[i].Fitness); err != nil {
-			logger.ErrorContext(ctx, err.Error())
+	// Score and add to history only if starting fresh
+	if historyFilePath == "" {
+		// Score
+		for i := range DefaultConfig.PopulationSize {
+			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
+			if err := recordEvalResult(population[i].Fitness); err != nil {
+				logger.ErrorContext(ctx, err.Error())
+				return err
+			}
+		}
+
+		// Sort
+		slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
+			return cmp.Compare(b.Fitness, a.Fitness)
+		})
+
+		history = append(history, GenerationHistoryEntry{
+			Generation: generationCount,
+			Timestamp:  time.Now().UTC(),
+			BestScore:  population[0].Fitness,
+			Weights:    population[0].Genes,
+		})
+		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
 			return err
 		}
-	}
-
-	// Sort
-	slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
-		return cmp.Compare(b.Fitness, a.Fitness)
-	})
-
-	history = append(history, GenerationHistoryEntry{
-		Generation: generationCount,
-		Timestamp:  time.Now().UTC(),
-		BestScore:  population[0].Fitness,
-		Weights:    population[0].Genes,
-	})
-	if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
-		return err
+	} else {
+		// When loading from history, ensure population is sorted
+		slices.SortFunc([]Chromosome(population), func(a, b Chromosome) int {
+			return cmp.Compare(b.Fitness, a.Fitness)
+		})
 	}
 
 	staleIterations := 0
@@ -291,6 +346,11 @@ func TrainGA(ctx context.Context, logger *slog.Logger) error {
 			)
 			break
 		}
+	}
+
+	history[len(history)-1].Population = population
+	if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
+		return err
 	}
 
 	logger.InfoContext(

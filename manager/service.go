@@ -304,9 +304,9 @@ func (svc *service) StopTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-func (svc *service) TrainGA(ctx context.Context) error {
+func (svc *service) TrainGA(ctx context.Context, historyFilePath string) error {
 	go func() {
-		if err := scheduler.TrainGA(ctx, svc.logger); err != nil {
+		if err := scheduler.TrainGA(ctx, svc.logger, historyFilePath); err != nil {
 			svc.logger.ErrorContext(ctx, "failed to train dynamic scheduler", "error", err)
 			return
 		}
@@ -315,9 +315,9 @@ func (svc *service) TrainGA(ctx context.Context) error {
 	return nil
 }
 
-func (svc *service) TrainPSO(ctx context.Context) error {
+func (svc *service) TrainPSO(ctx context.Context, historyFilePath string) error {
 	go func() {
-		if err := scheduler.TrainPSO(ctx, svc.logger); err != nil {
+		if err := scheduler.TrainPSO(ctx, svc.logger, historyFilePath); err != nil {
 			svc.logger.ErrorContext(ctx, "failed to train pso scheduler", "error", err)
 			return
 		}

@@ -195,8 +195,17 @@ func stopTaskEndpoint(svc manager.Service) endpoint.Endpoint {
 }
 
 func trainGAEndpoint(svc manager.Service) endpoint.Endpoint {
-	return func(ctx context.Context, _ any) (any, error) {
-		if err := svc.TrainGA(ctx); err != nil {
+	return func(ctx context.Context, request any) (any, error) {
+		var historyPath string
+		if req, ok := request.(map[string]interface{}); ok {
+			if path, exists := req["history_file"]; exists {
+				if str, ok := path.(string); ok {
+					historyPath = str
+				}
+			}
+		}
+
+		if err := svc.TrainGA(ctx, historyPath); err != nil {
 			return messageResponse{}, err
 		}
 
@@ -207,8 +216,17 @@ func trainGAEndpoint(svc manager.Service) endpoint.Endpoint {
 }
 
 func trainPSOEndpoint(svc manager.Service) endpoint.Endpoint {
-	return func(ctx context.Context, _ any) (any, error) {
-		if err := svc.TrainPSO(ctx); err != nil {
+	return func(ctx context.Context, request any) (any, error) {
+		var historyPath string
+		if req, ok := request.(map[string]interface{}); ok {
+			if path, exists := req["history_file"]; exists {
+				if str, ok := path.(string); ok {
+					historyPath = str
+				}
+			}
+		}
+
+		if err := svc.TrainPSO(ctx, historyPath); err != nil {
 			return messageResponse{}, err
 		}
 

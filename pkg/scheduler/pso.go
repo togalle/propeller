@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -38,7 +39,7 @@ type particle struct {
 	BestFitness  float64
 }
 
-func TrainPSO(ctx context.Context, logger *slog.Logger) error {
+func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) error {
 	const maxConsecutiveEvalFailures = 10
 	consecutiveEvalFailures := 0
 	recordEvalResult := func(fitness float64) error {
@@ -53,13 +54,56 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 		consecutiveEvalFailures = 0
 		return nil
 	}
-	// Make history file
-	if _, err := os.Stat("pso_history"); os.IsNotExist(err) {
-		if err := os.Mkdir("pso_history", 0o755); err != nil {
-			return fmt.Errorf("create pso_history folder: %w", err)
+
+	var historyFile string
+	var history []GenerationHistoryEntry
+	var startIter int
+	var particles []particle
+
+	// Load from existing history file if provided
+	if historyFilePath != "" {
+		data, err := os.ReadFile(historyFilePath)
+		if err != nil {
+			return fmt.Errorf("read history file: %w", err)
 		}
+
+		if err := json.Unmarshal(data, &history); err != nil {
+			return fmt.Errorf("parse history file: %w", err)
+		}
+
+		if len(history) == 0 {
+			return fmt.Errorf("history file is empty")
+		}
+
+		lastEntry := history[len(history)-1]
+		if lastEntry.Population == nil {
+			return fmt.Errorf("final generation in history file has no particles")
+		}
+
+		// Unmarshal particles from interface{}
+		particlesData, err := json.Marshal(lastEntry.Population)
+		if err != nil {
+			return fmt.Errorf("marshal particles: %w", err)
+		}
+		if err := json.Unmarshal(particlesData, &particles); err != nil {
+			return fmt.Errorf("unmarshal particles: %w", err)
+		}
+
+		historyFile = historyFilePath
+		startIter = lastEntry.Generation + 1
+
+		logger.InfoContext(ctx, "Loaded history file", "path", historyFilePath, "entries", len(history), "from_iteration", startIter)
+	} else {
+		// Make history file
+		if _, err := os.Stat("pso_history"); os.IsNotExist(err) {
+			if err := os.Mkdir("pso_history", 0o755); err != nil {
+				return fmt.Errorf("create pso_history folder: %w", err)
+			}
+		}
+		historyFile = fmt.Sprintf("pso_history/pso_generation_history_%d.json", time.Now().Unix())
+		history = make([]GenerationHistoryEntry, 0, DefaultConfig.Generations)
+		startIter = 1
 	}
-	historyFile := fmt.Sprintf("pso_history/pso_generation_history_%d.json", time.Now().Unix())
 
 	logger.InfoContext(ctx, "Starting PSO training...")
 	httpClient := &http.Client{
@@ -100,35 +144,47 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	// Initialize particles
-	particles := createInitialSwarm(DefaultConfig.PopulationSize, defaultPSOConfig)
-	history := make([]GenerationHistoryEntry, 0, DefaultConfig.Generations)
+	if len(particles) == 0 {
+		particles = createInitialSwarm(DefaultConfig.PopulationSize, defaultPSOConfig)
+	}
 	globalBest := Chromosome{Fitness: math.Inf(-1)}
-	for i := range particles {
-		particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
-		if err := recordEvalResult(particles[i].Fitness); err != nil {
-			logger.ErrorContext(ctx, err.Error())
+
+	// Only initialize and score particles if we're starting fresh
+	if startIter == 1 {
+		for i := range particles {
+			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
+			if err := recordEvalResult(particles[i].Fitness); err != nil {
+				logger.ErrorContext(ctx, err.Error())
+				return err
+			}
+			particles[i].BestPosition = particles[i].Position
+			particles[i].BestFitness = particles[i].Fitness
+
+			if particles[i].Fitness > globalBest.Fitness {
+				globalBest = Chromosome{Genes: particles[i].Position, Fitness: particles[i].Fitness}
+			}
+		}
+		history = append(history, GenerationHistoryEntry{
+			Generation: 1,
+			Timestamp:  time.Now().UTC(),
+			BestScore:  globalBest.Fitness,
+			Weights:    globalBest.Genes,
+		})
+		if err := writeGenerationHistory(historyFile, history); err != nil {
 			return err
 		}
-		particles[i].BestPosition = particles[i].Position
-		particles[i].BestFitness = particles[i].Fitness
-
-		if particles[i].Fitness > globalBest.Fitness {
-			globalBest = Chromosome{Genes: particles[i].Position, Fitness: particles[i].Fitness}
+	} else {
+		// When loading from history, find the global best among loaded particles
+		for i := range particles {
+			if particles[i].Fitness > globalBest.Fitness {
+				globalBest = Chromosome{Genes: particles[i].Position, Fitness: particles[i].Fitness}
+			}
 		}
-	}
-	history = append(history, GenerationHistoryEntry{
-		Generation: 1,
-		Timestamp:  time.Now().UTC(),
-		BestScore:  globalBest.Fitness,
-		Weights:    globalBest.Genes,
-	})
-	if err := writeGenerationHistory(historyFile, history); err != nil {
-		return err
 	}
 
 	// Start optimization loop
 	staleIterations := 0
-	for iter := 2; iter <= DefaultConfig.Generations; iter++ {
+	for iter := startIter; iter <= DefaultConfig.Generations; iter++ {
 		bestBefore := globalBest.Fitness
 
 		for i := range particles {
@@ -192,8 +248,19 @@ func TrainPSO(ctx context.Context, logger *slog.Logger) error {
 				"iteration", iter,
 				"best_fitness", globalBest.Fitness,
 			)
+			history[len(history)-1].Population = particles
+			if err := writeGenerationHistory(historyFile, history); err != nil {
+				return err
+			}
 			break
 		}
+	}
+
+	if len(history) > 0 {
+		history[len(history)-1].Population = particles
+	}
+	if err := writeGenerationHistory(historyFile, history); err != nil {
+		return err
 	}
 
 	logger.InfoContext(
