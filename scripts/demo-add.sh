@@ -13,6 +13,6 @@ curl -s -X GET "http://localhost:7070/tasks/$TASK_ID" | jq 'del(.file)'
 
 curl -s -X POST "http://localhost:7070/tasks/$TASK_ID/start" | jq
 
-#sleep 0.5
+sleep 0.5
 
-#curl -s -X GET "http://localhost:7070/tasks/$TASK_ID" | jq 'del(.file)'
+curl -s -X GET "http://localhost:7070/tasks/$TASK_ID" | jq 'del(.file)'

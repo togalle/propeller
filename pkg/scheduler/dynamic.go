@@ -179,6 +179,7 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 				continue
 			}
 
+			// This also works for dead proplets, as this error just returns an empty JSON
 			var result struct {
 				Started bool `json:"started"`
 			}
@@ -186,7 +187,6 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 				log.Printf("Error decoding start response for task %s (attempt %d): %v", id, attempt+1, err)
 			}
 			resp.Body.Close()
-
 			if result.Started {
 				started = true
 				break
