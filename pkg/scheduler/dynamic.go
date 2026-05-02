@@ -156,7 +156,7 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 		taskID, err := createTask(taskIndex, genes, client, taskFileData)
 		if err != nil {
 			log.Printf("Error creating task: %v", err)
-			continue
+			return math.Inf(-1)
 		}
 		taskIds = append(taskIds, taskID)
 	}
@@ -289,6 +289,21 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 		}
 	}
 
+	// Delete all tasks
+	for _, id := range taskIds {
+		req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/%s", DefaultConfig.TasksURL, id), nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Error deleting task %s: %v", id, err)
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			raw, _ := io.ReadAll(resp.Body)
+			log.Printf("Non-2xx status while deleting task %s: status=%d body=%s", id, resp.StatusCode, string(raw))
+		}
+		resp.Body.Close()
+	}
+
 	if completedOrFailed == 0 {
 		return math.Inf(-1)
 	}
@@ -387,7 +402,14 @@ func createTask(index int, genes Genes, client *http.Client, taskFileData map[st
 
 	fileData, ok := taskFileData[task.File]
 	if !ok || len(fileData) == 0 {
-		return "", fmt.Errorf("missing preloaded wasm file data for %s", task.File)
+		loaded, err := os.ReadFile(task.File)
+		if err != nil {
+			return "", fmt.Errorf("read wasm file %s: %w", task.File, err)
+		}
+		fileData = loaded
+		if taskFileData != nil {
+			taskFileData[task.File] = loaded
+		}
 	}
 
 	putBody := &bytes.Buffer{}
