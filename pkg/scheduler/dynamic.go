@@ -63,8 +63,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 
 		scores[p.ID] = map[string]float64{
 			"cpu_percent":         scoreCPUPercent(p.LatestMetrics.Percent),
-			"cpu_user_seconds":    1.0 / (1.0 + p.LatestMetrics.UserSeconds),
-			"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
+			"cpu_time_delta":      1.0 / (1.0 + p.CpuTimeDelta),
 			"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 			"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
 			"power_score":         1.0 / (1.0 + p.PowerModelC + p.LatestMetrics.Percent*p.PowerModelU),
@@ -364,8 +363,7 @@ func createTask(index int, genes Genes, client *http.Client, taskFileData map[st
 		"scheduler": "dynamic",
 		"weights": map[string]float64{
 			"cpu_percent":         genes.CpuPercent,
-			"cpu_user_seconds":    genes.CpuUserSeconds,
-			"cpu_system_seconds":  genes.CpuSystemSeconds,
+			"cpu_time_delta":      genes.CpuTimeDelta,
 			"timezone_difference": genes.TimezoneDifference,
 			"distance":            genes.Distance,
 			"radiation":           genes.Radiation,

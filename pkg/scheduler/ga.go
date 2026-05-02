@@ -74,8 +74,7 @@ type (
 
 	Genes struct {
 		CpuPercent         float64
-		CpuUserSeconds     float64
-		CpuSystemSeconds   float64
+		CpuTimeDelta       float64
 		TimezoneDifference float64
 		Distance           float64
 		Radiation          float64
@@ -109,8 +108,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 	// This is done by scoring a dummy chromosome with all weights set to 0, which should produce average scheduling decisions and thus warm up a representative set of droplets.
 	dummyGenes := Genes{
 		CpuPercent:         0,
-		CpuUserSeconds:     0,
-		CpuSystemSeconds:   0,
+		CpuTimeDelta:       0,
 		TimezoneDifference: 0,
 		Distance:           0,
 		Radiation:          0,
@@ -263,8 +261,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 			child := Chromosome{
 				Genes: Genes{
 					CpuPercent:         choose(parent1.Genes.CpuPercent, parent2.Genes.CpuPercent),
-					CpuUserSeconds:     choose(parent1.Genes.CpuUserSeconds, parent2.Genes.CpuUserSeconds),
-					CpuSystemSeconds:   choose(parent1.Genes.CpuSystemSeconds, parent2.Genes.CpuSystemSeconds),
+					CpuTimeDelta:       choose(parent1.Genes.CpuTimeDelta, parent2.Genes.CpuTimeDelta),
 					TimezoneDifference: choose(parent1.Genes.TimezoneDifference, parent2.Genes.TimezoneDifference),
 					Distance:           choose(parent1.Genes.Distance, parent2.Genes.Distance),
 					PowerScore:         choose(parent1.Genes.PowerScore, parent2.Genes.PowerScore),
@@ -295,8 +292,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 			g := population[i].Genes
 			population[i].Genes = Genes{
 				CpuPercent:         mutateGene(g.CpuPercent),
-				CpuUserSeconds:     mutateGene(g.CpuUserSeconds),
-				CpuSystemSeconds:   mutateGene(g.CpuSystemSeconds),
+				CpuTimeDelta:       mutateGene(g.CpuTimeDelta),
 				TimezoneDifference: mutateGene(g.TimezoneDifference),
 				Distance:           mutateGene(g.Distance),
 				PowerScore:         mutateGene(g.PowerScore),
@@ -375,8 +371,7 @@ func RandomGenes(min, max float64) Genes {
 	}
 	return Genes{
 		CpuPercent:         rnd(),
-		CpuUserSeconds:     rnd(),
-		CpuSystemSeconds:   rnd(),
+		CpuTimeDelta:       rnd(),
 		TimezoneDifference: rnd(),
 		Distance:           rnd(),
 		Radiation:          rnd(),
@@ -405,8 +400,7 @@ func writeBestChromosome(path string, best Chromosome) error {
 	}
 
 	tree.SetPath([]string{"scheduler", "cpu_percent"}, best.Genes.CpuPercent)
-	tree.SetPath([]string{"scheduler", "cpu_user_seconds"}, best.Genes.CpuUserSeconds)
-	tree.SetPath([]string{"scheduler", "cpu_system_seconds"}, best.Genes.CpuSystemSeconds)
+	tree.SetPath([]string{"scheduler", "cpu_time_delta"}, best.Genes.CpuTimeDelta)
 	tree.SetPath([]string{"scheduler", "timezone_difference"}, best.Genes.TimezoneDifference)
 	tree.SetPath([]string{"scheduler", "distance"}, best.Genes.Distance)
 	tree.SetPath([]string{"scheduler", "radiation"}, best.Genes.Radiation)

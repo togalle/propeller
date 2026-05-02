@@ -13,6 +13,8 @@ type Proplet struct {
 	Alive             bool        `json:"alive"`
 	AliveHistory      []time.Time `json:"alive_history"`
 	LatestMetrics     CPUMetrics  `json:"latest_metrics"`
+	PrevCpuSeconds    float64     `json:"prev_cpu_seconds,omitempty"`
+	CpuTimeDelta      float64     `json:"cpu_time_delta,omitempty"`
 	TimezoneOffsetSec int         `json:"timezone_offset_sec"`
 	Coordinates       []float64   `json:"coordinates,omitempty"`
 	PowerModelU       float64     `json:"powermodel_u,omitempty"`

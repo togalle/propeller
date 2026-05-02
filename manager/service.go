@@ -621,6 +621,17 @@ func (svc *service) handlePropletMetrics(ctx context.Context, msg map[string]any
 			return err
 		}
 
+		// compute total CPU seconds (user + system) and the delta since last
+		// message using the stored previous value on the proplet
+		currentTotal := propletMetrics.CPU.UserSeconds + propletMetrics.CPU.SystemSeconds
+		delta := currentTotal - p.PrevCpuSeconds
+		if delta < 0 {
+			// avoid negative deltas in case counters reset
+			delta = 0
+		}
+
+		p.CpuTimeDelta = delta
+		p.PrevCpuSeconds = currentTotal
 		p.LatestMetrics = propletMetrics.CPU
 
 		if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
