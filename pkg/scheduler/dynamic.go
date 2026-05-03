@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,50 @@ type dynamicScheduler struct {
 	ManagerCoordinates []float64
 	PropletRadiations  map[string]float64
 	LastAPIFetch       time.Time
+}
+
+// Config
+type Config struct {
+	WeightMin      float64
+	WeightMax      float64
+	PopulationSize int
+	Generations    int
+	MutationRate   float64
+	ScoreTasks     int
+	TasksURL       string
+	Tasks          []Task[any]
+	ScoreWeights   ScoreWeights
+	WarmupTime     time.Duration
+	TrainMetrics   []string
+}
+
+var DefaultConfig = Config{
+	WeightMin:      -5,
+	WeightMax:      5,
+	PopulationSize: 50,
+	Generations:    100,
+	MutationRate:   0.3,
+	ScoreTasks:     20,
+	TasksURL:       "http://localhost:7070/tasks",
+	Tasks: []Task[any]{
+		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
+		{Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
+		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
+	},
+	ScoreWeights: ScoreWeights{
+		delay:  1.0,
+		energy: 2.0,
+	},
+	WarmupTime: 2 * time.Minute,
+	TrainMetrics: []string{
+		"cpu_percent",
+		// "cpu_time_delta",
+		// "timezone_difference",
+		// "distance",
+		// "radiation",
+		"power_score",
+		// "task_count",
+	},
 }
 
 // Initialization
@@ -354,22 +399,40 @@ func getEnergyScoreForProplet(client *http.Client, propletID string, cpuTimeMS f
 	return 1.0 / (1.0 + cpuTimeMS*coefficientSum), nil
 }
 
+func isActiveMetric(metric string) bool {
+	return slices.Contains(DefaultConfig.TrainMetrics, metric)
+}
+
 func createTask(index int, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
 	task := DefaultConfig.Tasks[index]
 
+	weights := map[string]float64{}
+	if isActiveMetric("cpu_percent") {
+		weights["cpu_percent"] = genes.CpuPercent
+	}
+	if isActiveMetric("cpu_time_delta") {
+		weights["cpu_time_delta"] = genes.CpuTimeDelta
+	}
+	if isActiveMetric("timezone_difference") {
+		weights["timezone_difference"] = genes.TimezoneDifference
+	}
+	if isActiveMetric("distance") {
+		weights["distance"] = genes.Distance
+	}
+	if isActiveMetric("radiation") {
+		weights["radiation"] = genes.Radiation
+	}
+	if isActiveMetric("power_score") {
+		weights["power_score"] = genes.PowerScore
+	}
+	if isActiveMetric("task_count") {
+		weights["task_count"] = genes.TaskCount
+	}
 	body := map[string]any{
 		"name":      task.Name,
 		"inputs":    task.Inputs, // must be []uint64 in Task struct
 		"scheduler": "dynamic",
-		"weights": map[string]float64{
-			"cpu_percent":         genes.CpuPercent,
-			"cpu_time_delta":      genes.CpuTimeDelta,
-			"timezone_difference": genes.TimezoneDifference,
-			"distance":            genes.Distance,
-			"radiation":           genes.Radiation,
-			"power_score":         genes.PowerScore,
-			"task_count":          genes.TaskCount,
-		},
+		"weights":   weights,
 	}
 
 	b, err := json.Marshal(body)

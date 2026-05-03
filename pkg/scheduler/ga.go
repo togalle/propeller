@@ -17,40 +17,6 @@ import (
 	"github.com/pelletier/go-toml"
 )
 
-// Config
-type Config struct {
-	WeightMin      float64
-	WeightMax      float64
-	PopulationSize int
-	Generations    int
-	MutationRate   float64
-	ScoreTasks     int
-	TasksURL       string
-	Tasks          []Task[any]
-	ScoreWeights   ScoreWeights
-	WarmupTime     time.Duration
-}
-
-var DefaultConfig = Config{
-	WeightMin:      -10,
-	WeightMax:      10,
-	PopulationSize: 50,
-	Generations:    100,
-	MutationRate:   0.2,
-	ScoreTasks:     50,
-	TasksURL:       "http://localhost:7070/tasks",
-	Tasks: []Task[any]{
-		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
-		{Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
-		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
-	},
-	ScoreWeights: ScoreWeights{
-		delay:  1.0,
-		energy: 1.5,
-	},
-	WarmupTime: 1 * time.Minute,
-}
-
 // Types
 type (
 	ScoreWeights struct {
@@ -106,32 +72,27 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 
 	// Warm up system to prevent best first generation from being skewed by cold start effects.
 	// This is done by scoring a dummy chromosome with all weights set to 0, which should produce average scheduling decisions and thus warm up a representative set of droplets.
-	dummyGenes := Genes{
-		CpuPercent:         0,
-		CpuTimeDelta:       0,
-		TimezoneDifference: 0,
-		Distance:           0,
-		Radiation:          0,
-		PowerScore:         0,
-		TaskCount:          0,
-	}
-	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
-	for {
-		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
-			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
-		}
-		if time.Now().After(warmupDeadline) {
-			break
-		}
-	}
+	// dummyGenes := createInitialGeneration(1)[0].Genes
+	// warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
+	// for {
+	// 	if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
+	// 		logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+	// 	}
+	// 	if time.Now().After(warmupDeadline) {
+	// 		break
+	// 	}
+	// }
 
 	var generationHistoryFile string
 	var history []GenerationHistoryEntry
 	var generationCount int
 	var population []Chromosome
 
+	logger.InfoContext(ctx, "Checking history file", "path", historyFilePath)
 	// Load from existing history file if provided
 	if historyFilePath != "" {
+
+		logger.InfoContext(ctx, "File found")
 		data, err := os.ReadFile(historyFilePath)
 		if err != nil {
 			return fmt.Errorf("read history file: %w", err)
@@ -164,6 +125,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 
 		logger.InfoContext(ctx, "Loaded history file", "path", historyFilePath, "entries", len(history), "from_generation", generationCount)
 	} else {
+		logger.InfoContext(ctx, "No existing history file found")
 		// Create new history file
 		if _, err := os.Stat("ga_history"); os.IsNotExist(err) {
 			if err := os.Mkdir("ga_history", 0o755); err != nil {
@@ -176,7 +138,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 	}
 
 	logger.InfoContext(
-		ctx, "Starting GA training...\nCreating first generation...",
+		ctx, "Creating first generation...",
 	)
 
 	// Initialization
@@ -227,6 +189,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 			Timestamp:  time.Now().UTC(),
 			BestScore:  population[0].Fitness,
 			Weights:    population[0].Genes,
+			Population: population,
 		})
 		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
 			return err
@@ -238,6 +201,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 		})
 	}
 
+	var bestOverall Chromosome
 	staleIterations := 0
 
 	// Loop over generations
@@ -276,7 +240,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 		mutateGene := func(v float64) float64 {
 			if rand.Float64() < DefaultConfig.MutationRate {
 				// Gaussian mutation around current value, then clamp.
-				sigma := (DefaultConfig.WeightMax - DefaultConfig.WeightMin) * 0.1 // 10% of the weight range
+				sigma := (DefaultConfig.WeightMax - DefaultConfig.WeightMin) * 0.2 // 20% of the weight range
 				mutated := v + rand.NormFloat64()*sigma
 				if mutated < DefaultConfig.WeightMin {
 					return DefaultConfig.WeightMin
@@ -301,6 +265,31 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 			}
 		}
 
+		// Set inactive weights to 0
+		for i := range DefaultConfig.PopulationSize {
+			if !isActiveMetric("cpu_percent") {
+				population[i].Genes.CpuPercent = 0
+			}
+			if !isActiveMetric("cpu_time_delta") {
+				population[i].Genes.CpuTimeDelta = 0
+			}
+			if !isActiveMetric("timezone_difference") {
+				population[i].Genes.TimezoneDifference = 0
+			}
+			if !isActiveMetric("distance") {
+				population[i].Genes.Distance = 0
+			}
+			if !isActiveMetric("radiation") {
+				population[i].Genes.Radiation = 0
+			}
+			if !isActiveMetric("power_score") {
+				population[i].Genes.PowerScore = 0
+			}
+			if !isActiveMetric("task_count") {
+				population[i].Genes.TaskCount = 0
+			}
+		}
+
 		// Score
 		for i := range DefaultConfig.PopulationSize {
 			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
@@ -315,12 +304,35 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 			return cmp.Compare(b.Fitness, a.Fitness)
 		})
 
+		// Elitism: preserve the best solution ever found
+		if bestOverall.Genes == (Genes{}) {
+			// First generation; initialize bestOverall
+			bestOverall = population[0]
+		} else if population[0].Fitness < bestOverall.Fitness {
+			// Current best dropped due to fitness noise; restore best overall
+			population[len(population)-1] = bestOverall
+			logger.InfoContext(
+				ctx, "Restored elite solution due to fitness noise",
+				"restored_fitness", bestOverall.Fitness,
+				"current_best", population[0].Fitness,
+			)
+		} else if population[0].Fitness > bestOverall.Fitness {
+			// Found a new best
+			bestOverall = population[0]
+			logger.InfoContext(
+				ctx, "Found new best solution",
+				"generation", generationCount+1,
+				"best_fitness", bestOverall.Fitness,
+			)
+		}
+
 		generationCount++
 		history = append(history, GenerationHistoryEntry{
 			Generation: generationCount,
 			Timestamp:  time.Now().UTC(),
 			BestScore:  population[0].Fitness,
 			Weights:    population[0].Genes,
+			Population: population,
 		})
 		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
 			return err
@@ -365,19 +377,30 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 }
 
 func RandomGenes(min, max float64) Genes {
-	rangeVal := max - min
-	rnd := func() float64 {
-		return min + rand.Float64()*rangeVal
+	rndVal := func() float64 { return min + rand.Float64()*(max-min) }
+	g := Genes{}
+	if isActiveMetric("cpu_percent") {
+		g.CpuPercent = rndVal()
 	}
-	return Genes{
-		CpuPercent:         rnd(),
-		CpuTimeDelta:       rnd(),
-		TimezoneDifference: rnd(),
-		Distance:           rnd(),
-		Radiation:          rnd(),
-		PowerScore:         rnd(),
-		TaskCount:          rnd(),
+	if isActiveMetric("cpu_time_delta") {
+		g.CpuTimeDelta = rndVal()
 	}
+	if isActiveMetric("timezone_difference") {
+		g.TimezoneDifference = rndVal()
+	}
+	if isActiveMetric("distance") {
+		g.Distance = rndVal()
+	}
+	if isActiveMetric("radiation") {
+		g.Radiation = rndVal()
+	}
+	if isActiveMetric("power_score") {
+		g.PowerScore = rndVal()
+	}
+	if isActiveMetric("task_count") {
+		g.TaskCount = rndVal()
+	}
+	return g
 }
 
 func createInitialGeneration(populationSize int) []Chromosome {

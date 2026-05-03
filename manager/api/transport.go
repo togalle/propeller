@@ -116,13 +116,13 @@ func MakeHandler(svc manager.Service, logger *slog.Logger, instanceID string) ht
 	mux.Route("/schedulers", func(r chi.Router) {
 		r.Post("/dynamic/train/ga", otelhttp.NewHandler(kithttp.NewServer(
 			trainGAEndpoint(svc),
-			decodeEmptyReq,
+			decodeHistoryFileReq,
 			api.EncodeResponse,
 			opts...,
 		), "train-dynamic-scheduler-ga").ServeHTTP)
 		r.Post("/dynamic/train/pso", otelhttp.NewHandler(kithttp.NewServer(
 			trainPSOEndpoint(svc),
-			decodeEmptyReq,
+			decodeHistoryFileReq,
 			api.EncodeResponse,
 			opts...,
 		), "train-dynamic-scheduler-pso").ServeHTTP)
@@ -231,4 +231,17 @@ func decodeMetricsReq(key string) kithttp.DecodeRequestFunc {
 
 func decodeEmptyReq(_ context.Context, _ *http.Request) (any, error) {
 	return struct{}{}, nil
+}
+
+func decodeHistoryFileReq(_ context.Context, r *http.Request) (any, error) {
+	if !strings.Contains(r.Header.Get("Content-Type"), api.ContentType) {
+		return nil, errors.Join(apiutil.ErrValidation, apiutil.ErrUnsupportedContentType)
+	}
+
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, errors.Join(err, apiutil.ErrValidation)
+	}
+
+	return req, nil
 }

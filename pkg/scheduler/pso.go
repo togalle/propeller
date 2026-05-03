@@ -124,15 +124,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 	}
 
 	// Warm up system to prevent best first generation from being skewed by cold start effects.
-	dummyGenes := Genes{
-		CpuPercent:         0,
-		CpuUserSeconds:     0,
-		CpuSystemSeconds:   0,
-		TimezoneDifference: 0,
-		Distance:           0,
-		Radiation:          0,
-		PowerScore:         0,
-	}
+	dummyGenes := createInitialGeneration(1)[0].Genes
 	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
 	for {
 		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
@@ -169,6 +161,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 			Timestamp:  time.Now().UTC(),
 			BestScore:  globalBest.Fitness,
 			Weights:    globalBest.Genes,
+			Population: particles,
 		})
 		if err := writeGenerationHistory(historyFile, history); err != nil {
 			return err
@@ -224,6 +217,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 			Timestamp:  time.Now().UTC(),
 			BestScore:  globalBest.Fitness,
 			Weights:    globalBest.Genes,
+			Population: particles,
 		})
 		if err := writeGenerationHistory(historyFile, history); err != nil {
 			return err
@@ -318,8 +312,7 @@ func updateVelocity(p particle, globalBest Genes, cfg psoConfig, minWeight, maxW
 	}
 	return Genes{
 		CpuPercent:         component(p.Velocity.CpuPercent, p.Position.CpuPercent, p.BestPosition.CpuPercent, globalBest.CpuPercent),
-		CpuUserSeconds:     component(p.Velocity.CpuUserSeconds, p.Position.CpuUserSeconds, p.BestPosition.CpuUserSeconds, globalBest.CpuUserSeconds),
-		CpuSystemSeconds:   component(p.Velocity.CpuSystemSeconds, p.Position.CpuSystemSeconds, p.BestPosition.CpuSystemSeconds, globalBest.CpuSystemSeconds),
+		CpuTimeDelta:       component(p.Velocity.CpuTimeDelta, p.Position.CpuTimeDelta, p.BestPosition.CpuTimeDelta, globalBest.CpuTimeDelta),
 		TimezoneDifference: component(p.Velocity.TimezoneDifference, p.Position.TimezoneDifference, p.BestPosition.TimezoneDifference, globalBest.TimezoneDifference),
 		Distance:           component(p.Velocity.Distance, p.Position.Distance, p.BestPosition.Distance, globalBest.Distance),
 		Radiation:          component(p.Velocity.Radiation, p.Position.Radiation, p.BestPosition.Radiation, globalBest.Radiation),
@@ -341,8 +334,7 @@ func updatePosition(position, velocity Genes, minWeight, maxWeight float64) Gene
 
 	return Genes{
 		CpuPercent:         clampWeight(position.CpuPercent + velocity.CpuPercent),
-		CpuUserSeconds:     clampWeight(position.CpuUserSeconds + velocity.CpuUserSeconds),
-		CpuSystemSeconds:   clampWeight(position.CpuSystemSeconds + velocity.CpuSystemSeconds),
+		CpuTimeDelta:       clampWeight(position.CpuTimeDelta + velocity.CpuTimeDelta),
 		TimezoneDifference: clampWeight(position.TimezoneDifference + velocity.TimezoneDifference),
 		Distance:           clampWeight(position.Distance + velocity.Distance),
 		Radiation:          clampWeight(position.Radiation + velocity.Radiation),
