@@ -10,13 +10,12 @@ import (
 
 const TESTING = true
 const WEIGHT_CPU_PERCENT = 1
-const WEIGHT_CPU_USER_SECONDS = 0.5
-const WEIGHT_CPU_SYSTEM_SECONDS = 0.5
+const WEIGHT_CPU_TIME_DELTA = 1
 const WEIGHT_DISTANCE = 0
 const WEIGHT_TIMEZONE_DIFFERENCE = 0
 const WEIGHT_RADIATION = 0
-const WEIGHT_POWER_SCORE = 0
-const WEIGHT_TASK_COUNT = 1
+const WEIGHT_POWER_SCORE = 4
+const WEIGHT_TASK_COUNT = 2
 
 type staticScheduler struct {
 	ManagerCoordinates []float64
@@ -58,8 +57,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 			}
 			scores[p.ID] = map[string]float64{
 				"cpu_percent":         scoreCPUPercent(p.LatestMetrics.Percent),
-				"cpu_user_seconds":    1.0 / (1.0 + p.LatestMetrics.UserSeconds),
-				"cpu_system_seconds":  1.0 / (1.0 + p.LatestMetrics.SystemSeconds),
+				"cpu_time_delta":      1.0 / (1.0 + p.CpuTimeDelta),
 				"timezone_difference": getTZScore(p.TimezoneOffsetSec),
 				"distance":            1.0 / (1.0 + (managerCoords[0]-propletCoords[0])*(managerCoords[0]-propletCoords[0]) + (managerCoords[1]-propletCoords[1])*(managerCoords[1]-propletCoords[1])),
 				"power_score":         1.0 / (1.0 + p.PowerModelC + p.LatestMetrics.Percent*p.PowerModelU),
@@ -94,8 +92,7 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 	bestScore := float64(-1)
 	weights := map[string]float64{
 		"cpu_percent":         WEIGHT_CPU_PERCENT,
-		"cpu_user_seconds":    WEIGHT_CPU_USER_SECONDS,
-		"cpu_system_seconds":  WEIGHT_CPU_SYSTEM_SECONDS,
+		"cpu_time_delta":      WEIGHT_CPU_TIME_DELTA,
 		"distance":            WEIGHT_DISTANCE,
 		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
 		"radiation":           WEIGHT_RADIATION,

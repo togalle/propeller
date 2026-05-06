@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"math"
 	"math/rand"
 	"mime/multipart"
@@ -50,6 +52,8 @@ var DefaultConfig = Config{
 	ScoreTasks:     20,
 	TasksURL:       "http://localhost:7070/tasks",
 	Tasks: []Task[any]{
+		// {Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{40}},
+		// {Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{500}},
 		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
 		{Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
 		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
@@ -141,8 +145,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 	// Apply weights
 	weights := map[string]float64{
 		"cpu_percent":         WEIGHT_CPU_PERCENT,
-		"cpu_user_seconds":    WEIGHT_CPU_USER_SECONDS,
-		"cpu_system_seconds":  WEIGHT_CPU_SYSTEM_SECONDS,
+		"cpu_time_delta":      WEIGHT_CPU_TIME_DELTA,
 		"distance":            WEIGHT_DISTANCE,
 		"timezone_difference": WEIGHT_TIMEZONE_DIFFERENCE,
 		"radiation":           WEIGHT_RADIATION,
@@ -188,7 +191,7 @@ func (c *dynamicScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet
 	return selected, nil
 }
 
-func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][]byte) float64 {
+func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][]byte, baselineAverageDelayMS, baselineAverageEnergyEst float64) float64 {
 	// Execute tasks using the weights in the chromosome and measure performance to calculate fitness.
 	var taskIds []string
 	propletCoefficientCache := make(map[string]float64)
@@ -317,11 +320,11 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 				completedOrFailed++
 
 				if res.CPUTimeMS != nil && res.PropletID != "" {
-					energyScore, err := getEnergyScoreForProplet(client, res.PropletID, *res.CPUTimeMS, propletCoefficientCache)
+					energyEstimate, err := getEnergyEstimateForProplet(client, res.PropletID, *res.CPUTimeMS, propletCoefficientCache)
 					if err != nil {
-						log.Printf("Error calculating energy score for task %s: %v", id, err)
+						log.Printf("Error calculating energy estimate for task %s: %v", id, err)
 					} else {
-						totalEnergyScore += energyScore
+						totalEnergyScore += energyEstimate
 						energySamples++
 					}
 				}
@@ -352,17 +355,190 @@ func evaluateWeights(genes Genes, client *http.Client, taskFileData map[string][
 		return math.Inf(-1)
 	}
 
-	averageDelay := 1.0 / (1.0 + float64(delay)/float64(completedOrFailed))
+	measuredAverageDelayMS := float64(delay) / float64(completedOrFailed)
+	averageDelayScore := baselineAverageDelayMS / measuredAverageDelayMS
 
 	averageEnergyScore := 0.0
 	if energySamples > 0 {
-		averageEnergyScore = totalEnergyScore / float64(energySamples)
+		measuredAverageEnergyEst := totalEnergyScore / float64(energySamples)
+		averageEnergyScore = baselineAverageEnergyEst / measuredAverageEnergyEst
 	}
 
-	return DefaultConfig.ScoreWeights.delay*averageDelay + DefaultConfig.ScoreWeights.energy*averageEnergyScore
+	return DefaultConfig.ScoreWeights.delay*averageDelayScore + DefaultConfig.ScoreWeights.energy*averageEnergyScore
+}
+
+func evaluateRoundRobinBaseline(client *http.Client, taskFileData map[string][]byte) (averageDelayMS float64, averageEnergyEstimate float64, err error) {
+	var taskIds []string
+	propletCoefficientCache := make(map[string]float64)
+
+	for range DefaultConfig.ScoreTasks {
+		taskIndex := rand.Intn(len(DefaultConfig.Tasks))
+		taskID, createErr := createRoundRobinTask(taskIndex, client, taskFileData)
+		if createErr != nil {
+			log.Printf("Error creating round robin baseline task: %v", createErr)
+			return 0, 0, createErr
+		}
+		taskIds = append(taskIds, taskID)
+	}
+
+	const maxStartAttempts = 3
+	startedTaskIDs := make([]string, 0, len(taskIds))
+	for _, id := range taskIds {
+		var started bool
+		for attempt := 0; attempt < maxStartAttempts; attempt++ {
+			req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/start", DefaultConfig.TasksURL, id), nil)
+			resp, startErr := client.Do(req)
+			if startErr != nil {
+				log.Printf("Error starting round robin baseline task %s (attempt %d): %v", id, attempt+1, startErr)
+				if attempt < maxStartAttempts-1 {
+					backoff := time.Second * time.Duration(1<<attempt)
+					time.Sleep(backoff)
+				}
+				continue
+			}
+
+			var result struct {
+				Started bool `json:"started"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				log.Printf("Error decoding round robin baseline start response for task %s (attempt %d): %v", id, attempt+1, err)
+			}
+			resp.Body.Close()
+			if result.Started {
+				started = true
+				break
+			}
+
+			if attempt < maxStartAttempts-1 {
+				backoff := time.Second * time.Duration(1<<attempt)
+				time.Sleep(backoff)
+			}
+		}
+
+		if started {
+			startedTaskIDs = append(startedTaskIDs, id)
+		} else {
+			log.Printf("Failed to start round robin baseline task %s after retries", id)
+		}
+	}
+	taskIds = startedTaskIDs
+
+	if len(taskIds) == 0 {
+		return 0, 0, fmt.Errorf("no round robin baseline tasks started")
+	}
+
+	var totalDelayMS int
+	var delaySamples int
+	var totalEnergyEstimate float64
+	var energySamples int
+
+	const taskPollInterval = 20 * time.Millisecond
+	const taskPollLimit = 20
+
+	for _, id := range taskIds {
+		taskPollCount := 0
+
+		for {
+			if taskPollLimit == taskPollCount {
+				log.Printf("Reach polling limit for round robin baseline task %s", id)
+				break
+			}
+
+			req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", DefaultConfig.TasksURL, id), nil)
+			resp, pollErr := client.Do(req)
+			if pollErr != nil {
+				log.Printf("Error checking status of round robin baseline task %s: %v", id, pollErr)
+				taskPollCount++
+				time.Sleep(taskPollInterval)
+				continue
+			}
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				raw, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				log.Printf("Non-2xx status while polling round robin baseline task %s: status=%d body=%s", id, resp.StatusCode, string(raw))
+				taskPollCount++
+				time.Sleep(taskPollInterval)
+				continue
+			}
+
+			var res struct {
+				Result     *string    `json:"results,omitempty"`
+				PropletID  string     `json:"proplet_id,omitempty"`
+				CPUTimeMS  *float64   `json:"cpu_time_ms,omitempty"`
+				State      task.State `json:"state"`
+				Error      string     `json:"error,omitempty"`
+				StartTime  time.Time  `json:"start_time"`
+				FinishTime time.Time  `json:"finish_time"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+				resp.Body.Close()
+				log.Printf("Error decoding round robin baseline task %s status response: %v", id, err)
+				taskPollCount++
+				time.Sleep(taskPollInterval)
+				continue
+			}
+			resp.Body.Close()
+
+			isTerminal := res.State == task.Completed || res.State == task.Failed || res.Result != nil || res.Error != ""
+			if isTerminal {
+				if !res.StartTime.IsZero() && !res.FinishTime.IsZero() && res.FinishTime.After(res.StartTime) {
+					totalDelayMS += int(res.FinishTime.Sub(res.StartTime).Milliseconds())
+					delaySamples++
+				}
+
+				if res.CPUTimeMS != nil && res.PropletID != "" {
+					energyEstimate, energyErr := getEnergyEstimateForProplet(client, res.PropletID, *res.CPUTimeMS, propletCoefficientCache)
+					if energyErr != nil {
+						log.Printf("Error calculating round robin baseline energy estimate for task %s: %v", id, energyErr)
+					} else {
+						totalEnergyEstimate += energyEstimate
+						energySamples++
+					}
+				}
+				break
+			}
+
+			taskPollCount++
+			time.Sleep(taskPollInterval)
+		}
+	}
+
+	for _, id := range taskIds {
+		req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/%s", DefaultConfig.TasksURL, id), nil)
+		resp, deleteErr := client.Do(req)
+		if deleteErr != nil {
+			log.Printf("Error deleting round robin baseline task %s: %v", id, deleteErr)
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			raw, _ := io.ReadAll(resp.Body)
+			log.Printf("Non-2xx status while deleting round robin baseline task %s: status=%d body=%s", id, resp.StatusCode, string(raw))
+		}
+		resp.Body.Close()
+	}
+
+	if delaySamples == 0 {
+		return 0, 0, fmt.Errorf("no completed round robin baseline tasks with timing")
+	}
+
+	averageDelayMS = float64(totalDelayMS) / float64(delaySamples)
+	if energySamples > 0 {
+		averageEnergyEstimate = totalEnergyEstimate / float64(energySamples)
+	}
+
+	return averageDelayMS, averageEnergyEstimate, nil
 }
 
 func getEnergyScoreForProplet(client *http.Client, propletID string, cpuTimeMS float64, coefficientCache map[string]float64) (float64, error) {
+	energyEstimate, err := getEnergyEstimateForProplet(client, propletID, cpuTimeMS, coefficientCache)
+	if err != nil {
+		return 0, err
+	}
+	return 1.0 / (1.0 + energyEstimate), nil
+}
+
+func getEnergyEstimateForProplet(client *http.Client, propletID string, cpuTimeMS float64, coefficientCache map[string]float64) (float64, error) {
 	coefficientSum, ok := coefficientCache[propletID]
 	if !ok {
 		baseURL := strings.TrimSuffix(DefaultConfig.TasksURL, "/tasks")
@@ -396,7 +572,7 @@ func getEnergyScoreForProplet(client *http.Client, propletID string, cpuTimeMS f
 		coefficientCache[propletID] = coefficientSum
 	}
 
-	return 1.0 / (1.0 + cpuTimeMS*coefficientSum), nil
+	return coefficientSum * cpuTimeMS, nil
 }
 
 func isActiveMetric(metric string) bool {
@@ -404,34 +580,42 @@ func isActiveMetric(metric string) bool {
 }
 
 func createTask(index int, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
+	return createTaskWithScheduler(index, "dynamic", genes, client, taskFileData)
+}
+
+func createRoundRobinTask(index int, client *http.Client, taskFileData map[string][]byte) (string, error) {
+	return createTaskWithScheduler(index, "roundrobin", Genes{}, client, taskFileData)
+}
+
+func createTaskWithScheduler(index int, schedulerName string, genes Genes, client *http.Client, taskFileData map[string][]byte) (string, error) {
 	task := DefaultConfig.Tasks[index]
 
 	weights := map[string]float64{}
-	if isActiveMetric("cpu_percent") {
+	if schedulerName == "dynamic" && isActiveMetric("cpu_percent") {
 		weights["cpu_percent"] = genes.CpuPercent
 	}
-	if isActiveMetric("cpu_time_delta") {
+	if schedulerName == "dynamic" && isActiveMetric("cpu_time_delta") {
 		weights["cpu_time_delta"] = genes.CpuTimeDelta
 	}
-	if isActiveMetric("timezone_difference") {
+	if schedulerName == "dynamic" && isActiveMetric("timezone_difference") {
 		weights["timezone_difference"] = genes.TimezoneDifference
 	}
-	if isActiveMetric("distance") {
+	if schedulerName == "dynamic" && isActiveMetric("distance") {
 		weights["distance"] = genes.Distance
 	}
-	if isActiveMetric("radiation") {
+	if schedulerName == "dynamic" && isActiveMetric("radiation") {
 		weights["radiation"] = genes.Radiation
 	}
-	if isActiveMetric("power_score") {
+	if schedulerName == "dynamic" && isActiveMetric("power_score") {
 		weights["power_score"] = genes.PowerScore
 	}
-	if isActiveMetric("task_count") {
+	if schedulerName == "dynamic" && isActiveMetric("task_count") {
 		weights["task_count"] = genes.TaskCount
 	}
 	body := map[string]any{
 		"name":      task.Name,
 		"inputs":    task.Inputs, // must be []uint64 in Task struct
-		"scheduler": "dynamic",
+		"scheduler": schedulerName,
 		"weights":   weights,
 	}
 
@@ -523,4 +707,43 @@ func writeGenerationHistory(path string, history []GenerationHistoryEntry) error
 	}
 
 	return nil
+}
+
+func StandardDeviation(values []float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+
+	// Calculate mean
+	var sum float64
+	for _, v := range values {
+		sum += v
+	}
+	mean := sum / float64(len(values))
+
+	// Calculate variance
+	var sumSquaredDiff float64
+	for _, v := range values {
+		diff := v - mean
+		sumSquaredDiff += diff * diff
+	}
+
+	variance := sumSquaredDiff / float64(len(values)-1)
+	return math.Sqrt(variance)
+}
+
+func checkFitnessDeterminism(ctx context.Context, logger *slog.Logger, label string, sampleGenes Genes, samples int, threshold float64, eval func(Genes) float64) (scoreValues []float64, std float64, error error) {
+	var scores []float64
+	for range samples {
+		scores = append(scores, eval(sampleGenes))
+	}
+
+	scoreSTD := StandardDeviation(scores)
+	if scoreSTD > threshold {
+		logger.WarnContext(ctx, label+" fitness evaluations show significant variance", "variance", scoreSTD, "scores", scores)
+		return scores, scoreSTD, fmt.Errorf("fitness evaluation is not deterministic enough for reliable %s training (variance: %f)", label, scoreSTD)
+	}
+
+	logger.InfoContext(ctx, label+" determinism check passed with low standard deviation", "variance", scoreSTD)
+	return scores, scoreSTD, nil
 }

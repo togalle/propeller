@@ -25,11 +25,13 @@ type (
 	}
 
 	GenerationHistoryEntry struct {
-		Generation int         `json:"generation"`
-		Timestamp  time.Time   `json:"timestamp"`
-		BestScore  float64     `json:"best_score"`
-		Weights    Genes       `json:"weights"`
-		Population interface{} `json:"population,omitempty"`
+		Generation               int         `json:"generation"`
+		Timestamp                time.Time   `json:"timestamp"`
+		BestScore                float64     `json:"best_score"`
+		Weights                  Genes       `json:"weights"`
+		Population               interface{} `json:"population,omitempty"`
+		BaselineAverageDelayMS   float64     `json:"baseline_average_delay_ms,omitempty"`
+		BaselineAverageEnergyEst float64     `json:"baseline_average_energy_estimate,omitempty"`
 	}
 
 	Task[T any] struct {
@@ -54,6 +56,8 @@ type (
 	}
 )
 
+const DETERMINISM_CHECK = true
+
 func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) error {
 	const maxConsecutiveEvalFailures = 10
 	consecutiveEvalFailures := 0
@@ -72,16 +76,28 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 
 	// Warm up system to prevent best first generation from being skewed by cold start effects.
 	// This is done by scoring a dummy chromosome with all weights set to 0, which should produce average scheduling decisions and thus warm up a representative set of droplets.
-	// dummyGenes := createInitialGeneration(1)[0].Genes
-	// warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
-	// for {
-	// 	if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
-	// 		logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
-	// 	}
-	// 	if time.Now().After(warmupDeadline) {
-	// 		break
-	// 	}
-	// }
+	dummyGenes := createInitialGeneration(1)[0].Genes
+	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
+
+	// Get baseline values for scoring during warmup
+	var baselineDelayMS, baselineEnergyEst float64
+	if historyFilePath == "" {
+		var err error
+		baselineDelayMS, baselineEnergyEst, err = evaluateRoundRobinBaseline(&http.Client{Timeout: 30 * time.Second}, nil)
+		if err != nil {
+			logger.WarnContext(ctx, "Failed to compute baseline for warmup, using 1.0", "error", err)
+			baselineDelayMS, baselineEnergyEst = 1.0, 1.0
+		}
+	}
+
+	for {
+		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil, baselineDelayMS, baselineEnergyEst); score == math.Inf(-1) || math.IsNaN(score) {
+			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+		if time.Now().After(warmupDeadline) {
+			break
+		}
+	}
 
 	var generationHistoryFile string
 	var history []GenerationHistoryEntry
@@ -91,7 +107,6 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 	logger.InfoContext(ctx, "Checking history file", "path", historyFilePath)
 	// Load from existing history file if provided
 	if historyFilePath != "" {
-
 		logger.InfoContext(ctx, "File found")
 		data, err := os.ReadFile(historyFilePath)
 		if err != nil {
@@ -135,6 +150,45 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 		generationHistoryFile = fmt.Sprintf("ga_history/ga_generation_history_%d.json", time.Now().Unix())
 		history = make([]GenerationHistoryEntry, 0)
 		generationCount = 0
+
+		var err error
+		baselineDelayMS, baselineEnergyEst, err = evaluateRoundRobinBaseline(&http.Client{Timeout: 30 * time.Second}, nil)
+		if err != nil {
+			return fmt.Errorf("compute round robin baseline: %w", err)
+		}
+		history = append(history, GenerationHistoryEntry{
+			Generation:               generationCount,
+			Timestamp:                time.Now().UTC(),
+			BestScore:                0,
+			Weights:                  Genes{},
+			BaselineAverageDelayMS:   baselineDelayMS,
+			BaselineAverageEnergyEst: baselineEnergyEst,
+		})
+		if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
+			return err
+		}
+
+		// Determinism check: evaluate the same chromosome multiple times and log if results differ significantly, which could indicate external noise affecting fitness evaluations.
+		if DETERMINISM_CHECK {
+			testGenes := createInitialGeneration(1)[0].Genes
+			scores, std, err := checkFitnessDeterminism(ctx, logger, "GA", testGenes, 10, 0.05, func(g Genes) float64 {
+				return evaluateWeights(g, &http.Client{Timeout: 30 * time.Second}, nil, baselineDelayMS, baselineEnergyEst)
+			})
+			if err != nil {
+				return err
+			}
+			// Write standard deviation to the history file for reference
+			history = append(history, GenerationHistoryEntry{
+				Generation: generationCount,
+				Timestamp:  time.Now().UTC(),
+				BestScore:  std,
+				Weights:    Genes{},
+				Population: scores,
+			})
+			if err := writeGenerationHistory(generationHistoryFile, history); err != nil {
+				return err
+			}
+		}
 	}
 
 	logger.InfoContext(
@@ -172,7 +226,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 	if historyFilePath == "" {
 		// Score
 		for i := range DefaultConfig.PopulationSize {
-			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
+			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData, baselineDelayMS, baselineEnergyEst)
 			if err := recordEvalResult(population[i].Fitness); err != nil {
 				logger.ErrorContext(ctx, err.Error())
 				return err
@@ -292,7 +346,7 @@ func TrainGA(ctx context.Context, logger *slog.Logger, historyFilePath string) e
 
 		// Score
 		for i := range DefaultConfig.PopulationSize {
-			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData)
+			population[i].Fitness = evaluateWeights(population[i].Genes, httpClient, taskFileData, baselineDelayMS, baselineEnergyEst)
 			if err := recordEvalResult(population[i].Fitness); err != nil {
 				logger.ErrorContext(ctx, err.Error())
 				return err

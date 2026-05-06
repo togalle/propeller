@@ -15,6 +15,7 @@ import (
 
 type psoConfig struct {
 	InertiaWeight        float64
+	InertiaDecay         float64
 	CognitiveCoefficient float64
 	SocialCoefficient    float64
 	VelocityClampFactor  float64
@@ -24,11 +25,12 @@ type psoConfig struct {
 
 var defaultPSOConfig = psoConfig{
 	InertiaWeight:        0.9,
-	CognitiveCoefficient: 2.0,
-	SocialCoefficient:    1.0,
-	VelocityClampFactor:  0.2,
+	InertiaDecay:         0.99,
+	CognitiveCoefficient: 1.5,
+	SocialCoefficient:    1.5,
+	VelocityClampFactor:  0.5,
 	ConvergenceDelta:     1e-6,
-	NoImprovementLimit:   10,
+	NoImprovementLimit:   50,
 }
 
 type particle struct {
@@ -59,6 +61,19 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 	var history []GenerationHistoryEntry
 	var startIter int
 	var particles []particle
+	var baselineDelayMS, baselineEnergyEst float64
+
+	// Warm up system to prevent best first generation from being skewed by cold start effects.
+	dummyGenes := createInitialGeneration(1)[0].Genes
+	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
+	for {
+		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil, baselineDelayMS, baselineEnergyEst); score == math.Inf(-1) || math.IsNaN(score) {
+			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
+		}
+		if time.Now().After(warmupDeadline) {
+			break
+		}
+	}
 
 	// Load from existing history file if provided
 	if historyFilePath != "" {
@@ -103,6 +118,46 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 		historyFile = fmt.Sprintf("pso_history/pso_generation_history_%d.json", time.Now().Unix())
 		history = make([]GenerationHistoryEntry, 0, DefaultConfig.Generations)
 		startIter = 1
+
+		var err error
+		baselineDelayMS, baselineEnergyEst, err = evaluateRoundRobinBaseline(&http.Client{Timeout: 30 * time.Second}, nil)
+		if err != nil {
+			return fmt.Errorf("compute round robin baseline: %w", err)
+		}
+		history = append(history, GenerationHistoryEntry{
+			Generation:               0,
+			Timestamp:                time.Now().UTC(),
+			BestScore:                0,
+			Weights:                  Genes{},
+			BaselineAverageDelayMS:   baselineDelayMS,
+			BaselineAverageEnergyEst: baselineEnergyEst,
+		})
+		if err := writeGenerationHistory(historyFile, history); err != nil {
+			return err
+		}
+
+		// Determinism check: evaluate the same chromosome multiple times and log if results differ significantly, which could indicate external noise affecting fitness evaluations.
+		if DETERMINISM_CHECK {
+			testGenes := createInitialGeneration(1)[0].Genes
+			scores, std, err := checkFitnessDeterminism(ctx, logger, "GA", testGenes, 10, 0.05, func(g Genes) float64 {
+				return evaluateWeights(g, &http.Client{Timeout: 30 * time.Second}, nil, baselineDelayMS, baselineEnergyEst)
+			})
+			if err != nil {
+				return err
+			}
+			// Write standard deviation to the history file for reference
+			history = append(history, GenerationHistoryEntry{
+				Generation: 0,
+				Timestamp:  time.Now().UTC(),
+				BestScore:  std,
+				Weights:    Genes{},
+				Population: scores,
+			})
+			if err := writeGenerationHistory(historyFile, history); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	logger.InfoContext(ctx, "Starting PSO training...")
@@ -123,18 +178,6 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 		taskFileData[t.File] = data
 	}
 
-	// Warm up system to prevent best first generation from being skewed by cold start effects.
-	dummyGenes := createInitialGeneration(1)[0].Genes
-	warmupDeadline := time.Now().Add(DefaultConfig.WarmupTime)
-	for {
-		if score := evaluateWeights(dummyGenes, &http.Client{Timeout: 30 * time.Second}, nil); score == math.Inf(-1) || math.IsNaN(score) {
-			logger.WarnContext(ctx, "Warm-up chromosome evaluation failed, proceeding anyway")
-		}
-		if time.Now().After(warmupDeadline) {
-			break
-		}
-	}
-
 	// Initialize particles
 	if len(particles) == 0 {
 		particles = createInitialSwarm(DefaultConfig.PopulationSize, defaultPSOConfig)
@@ -144,7 +187,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 	// Only initialize and score particles if we're starting fresh
 	if startIter == 1 {
 		for i := range particles {
-			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
+			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData, baselineDelayMS, baselineEnergyEst)
 			if err := recordEvalResult(particles[i].Fitness); err != nil {
 				logger.ErrorContext(ctx, err.Error())
 				return err
@@ -176,6 +219,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 	}
 
 	// Start optimization loop
+	currentInertiaWeight := defaultPSOConfig.InertiaWeight
 	staleIterations := 0
 	for iter := startIter; iter <= DefaultConfig.Generations; iter++ {
 		bestBefore := globalBest.Fitness
@@ -184,6 +228,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 			particles[i].Velocity = updateVelocity(
 				particles[i],
 				globalBest.Genes,
+				currentInertiaWeight,
 				defaultPSOConfig,
 				DefaultConfig.WeightMin,
 				DefaultConfig.WeightMax,
@@ -196,7 +241,7 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 				DefaultConfig.WeightMax,
 			)
 
-			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData)
+			particles[i].Fitness = evaluateWeights(particles[i].Position, httpClient, taskFileData, baselineDelayMS, baselineEnergyEst)
 			if err := recordEvalResult(particles[i].Fitness); err != nil {
 				logger.ErrorContext(ctx, err.Error())
 				return err
@@ -234,6 +279,9 @@ func TrainPSO(ctx context.Context, logger *slog.Logger, historyFilePath string) 
 			ctx,
 			fmt.Sprintf("PSO iteration %d complete. Best fitness: %f", iter, globalBest.Fitness),
 		)
+
+		// Apply inertia decay
+		currentInertiaWeight *= defaultPSOConfig.InertiaDecay
 
 		if staleIterations >= defaultPSOConfig.NoImprovementLimit {
 			logger.InfoContext(
@@ -290,7 +338,7 @@ func createInitialSwarm(populationSize int, cfg psoConfig) []particle {
 	return swarm
 }
 
-func updateVelocity(p particle, globalBest Genes, cfg psoConfig, minWeight, maxWeight float64) Genes {
+func updateVelocity(p particle, globalBest Genes, inertiaWeight float64, cfg psoConfig, minWeight, maxWeight float64) Genes {
 	// Clamp velocity to prevent particles from moving too fast and skipping good solutions.
 	maxVelocity := (maxWeight - minWeight) * cfg.VelocityClampFactor
 	clampVelocity := func(v float64) float64 {
@@ -307,7 +355,7 @@ func updateVelocity(p particle, globalBest Genes, cfg psoConfig, minWeight, maxW
 	component := func(velocity, position, best, global float64) float64 {
 		r1 := rand.Float64()
 		r2 := rand.Float64()
-		newV := cfg.InertiaWeight*velocity + cfg.CognitiveCoefficient*r1*(best-position) + cfg.SocialCoefficient*r2*(global-position)
+		newV := inertiaWeight*velocity + cfg.CognitiveCoefficient*r1*(best-position) + cfg.SocialCoefficient*r2*(global-position)
 		return clampVelocity(newV)
 	}
 	return Genes{

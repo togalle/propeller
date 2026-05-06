@@ -234,12 +234,23 @@ func decodeEmptyReq(_ context.Context, _ *http.Request) (any, error) {
 }
 
 func decodeHistoryFileReq(_ context.Context, r *http.Request) (any, error) {
-	if !strings.Contains(r.Header.Get("Content-Type"), api.ContentType) {
+	// Handle empty or missing body - allow starting training without history file
+	if r.ContentLength == 0 {
+		return map[string]any{}, nil
+	}
+
+	// Check Content-Type only if body exists
+	contentType := r.Header.Get("Content-Type")
+	if contentType != "" && !strings.Contains(contentType, api.ContentType) {
 		return nil, errors.Join(apiutil.ErrValidation, apiutil.ErrUnsupportedContentType)
 	}
 
 	var req map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// If EOF, treat as empty body and return empty map
+		if errors.Is(err, io.EOF) {
+			return map[string]any{}, nil
+		}
 		return nil, errors.Join(err, apiutil.ErrValidation)
 	}
 
