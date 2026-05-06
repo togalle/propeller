@@ -539,6 +539,24 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 		return err
 	}
 
+	// Get the proplet and decrease its task count
+	data, err := svc.taskPropletDB.Get(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	propletID, ok := data.(string)
+	if !ok {
+		return pkgerrors.ErrInvalidData
+	}
+	p, err := svc.GetProplet(ctx, propletID)
+	if err != nil {
+		return err
+	}
+	p.TaskCount--
+	if err := svc.propletsDB.Update(ctx, p.ID, p); err != nil {
+		return err
+	}
+
 	return nil
 }
 
