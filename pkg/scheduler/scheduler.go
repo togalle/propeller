@@ -33,6 +33,7 @@ func NewSchedulerRegistry(coordinates []float64) *SchedulerRegistry {
 	registry.schedulers["roundrobin"] = NewRoundRobin()
 	registry.schedulers["static"] = NewStatic(coordinates)
 	registry.schedulers["dynamic"] = NewDynamic(coordinates)
+	registry.schedulers["probabilistic"] = NewProbabilistic()
 
 	return registry
 }
