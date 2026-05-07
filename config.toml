@@ -1,46 +1,48 @@
 
 [manager]
-  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
-  client_id = "a2afa44a-84f7-4d6b-b8cc-717f259f73de"
-  client_key = "cdb21e97-49fc-43e3-a677-b411aa1cd765"
-  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  channel_id = "e2dd25ff-1a38-4732-900e-63aca98e8f48"
+  client_id = "9b6af55d-6ba3-40b7-9927-425cdf370de3"
+  client_key = "4236bd59-a5c3-4f0a-b647-b5ef82eed3dc"
+  domain_id = "4e175378-3f19-4abe-9ab2-82f92ebc10b9"
 
+# rbp5b1.0-64
 [proplet1]
-  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
-  client_id = "6b2250a7-4727-485a-9e60-927aa23f1eb7"
-  client_key = "141f0b6c-2ac8-4a0a-9a4d-e80d7f0ab8fd"
-  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  channel_id = "e2dd25ff-1a38-4732-900e-63aca98e8f48"
+  client_id = "1982b339-157c-422a-bfe7-ed454013785b"
+  client_key = "c52e9656-73eb-4af1-b3ad-0ff262ad7ee1"
+  domain_id = "4e175378-3f19-4abe-9ab2-82f92ebc10b9"
   powermodel_c = 4.403192179893827
   powermodel_u = 3.457855981342954
 
+# rbp4b1.2
 [proplet2]
-  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
-  client_id = "17992190-0b49-45f5-8731-eab18a70a9f5"
-  client_key = "8f4c12e8-bc8e-4471-bf37-674c681acb87"
-  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  channel_id = "e2dd25ff-1a38-4732-900e-63aca98e8f48"
+  client_id = "8b26dfe7-b26d-4f25-824c-9dca4d7300e9"
+  client_key = "c9d9f808-9c86-4a5b-9cb9-6858426e2bf9"
+  domain_id = "4e175378-3f19-4abe-9ab2-82f92ebc10b9"
   powermodel_c = 2.243353676359355
   powermodel_u = 3.484191712285443
 
+# rbp3b1.2
 [proplet3]
-  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
-  client_id = "5e111c68-ea9d-45f5-9d7f-f60e70a9ec6b"
-  client_key = "a2ea9d48-2d7a-4d0a-bd30-993fc6a92311"
-  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  channel_id = "e2dd25ff-1a38-4732-900e-63aca98e8f48"
+  client_id = "83c4c6a3-0f8e-4e60-96b7-6120f5e0fc61"
+  client_key = "5f55e254-07b4-4e07-bf81-43f754239451"
+  domain_id = "4e175378-3f19-4abe-9ab2-82f92ebc10b9"
   powermodel_c = 1.078203625009793
   powermodel_u = 3.477373034437569
 
 [proxy]
-  channel_id = "60e991d1-8b5b-4365-adf0-04f44585f86a"
-  client_id = "6b2250a7-4727-485a-9e60-927aa23f1eb7"
-  client_key = "141f0b6c-2ac8-4a0a-9a4d-e80d7f0ab8fd"
-  domain_id = "1270d774-6c47-4323-928f-0bd803d18d95"
+  channel_id = "e2dd25ff-1a38-4732-900e-63aca98e8f48"
+  client_id = "1982b339-157c-422a-bfe7-ed454013785b"
+  client_key = "c52e9656-73eb-4af1-b3ad-0ff262ad7ee1"
+  domain_id = "4e175378-3f19-4abe-9ab2-82f92ebc10b9"
 
 [scheduler]
-  cpu_percent = -8.595947329580559
-  cpu_system_seconds = 6.40421427447513
-  cpu_user_seconds = 1.7310397629438317
-  distance = -3.5113792726394326
-  power_score = 6.072032896262122
-  radiation = 0.04081552328153393
-  task_count = 0.8591376656743179
-  timezone_difference = 6.364022020520007
+  cpu_percent = -5.0
+  cpu_time_delta = 0.0
+  distance = 0.0
+  power_score = -0.6307270256462092
+  radiation = 0.0
+  task_count = 0.0
+  timezone_difference = 0.0

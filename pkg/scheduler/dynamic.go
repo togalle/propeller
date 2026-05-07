@@ -53,10 +53,10 @@ var DefaultConfig = Config{
 	TasksURL:       "http://localhost:7070/tasks",
 	Tasks: []Task[any]{
 		// {Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{40}},
-		// {Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{500}},
-		{Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
-		{Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
-		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
+		{Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{500}},
+		// {Name: "add", File: "/home/tomasgalle/UGent/thesis/propeller/build/addition.wasm", Inputs: []any{10, 22}},
+		// {Name: "naive_fib", File: "/home/tomasgalle/UGent/thesis/propeller/build/naive-fib.wasm", Inputs: []any{30}},
+		// {Name: "matrix_mul", File: "/home/tomasgalle/UGent/thesis/propeller/build/matrix-mul.wasm", Inputs: []any{40}},
 	},
 	ScoreWeights: ScoreWeights{
 		delay:  1.0,
@@ -739,11 +739,21 @@ func checkFitnessDeterminism(ctx context.Context, logger *slog.Logger, label str
 	}
 
 	scoreSTD := StandardDeviation(scores)
-	if scoreSTD > threshold {
-		logger.WarnContext(ctx, label+" fitness evaluations show significant variance", "variance", scoreSTD, "scores", scores)
-		return scores, scoreSTD, fmt.Errorf("fitness evaluation is not deterministic enough for reliable %s training (variance: %f)", label, scoreSTD)
+
+	// Calculate mean for relative standard deviation
+	var sum float64
+	for _, v := range scores {
+		sum += v
+	}
+	mean := sum / float64(len(scores))
+
+	// Calculate relative standard deviation (coefficient of variation)
+	relativeSTD := scoreSTD / mean
+	if relativeSTD > threshold {
+		logger.WarnContext(ctx, label+" fitness evaluations show significant variance", "variance", relativeSTD, "scores", scores)
+		return scores, relativeSTD, fmt.Errorf("fitness evaluation is not deterministic enough for reliable %s training (variance: %f)", label, relativeSTD)
 	}
 
-	logger.InfoContext(ctx, label+" determinism check passed with low standard deviation", "variance", scoreSTD)
-	return scores, scoreSTD, nil
+	logger.InfoContext(ctx, label+" determinism check passed with low standard deviation", "variance", relativeSTD)
+	return scores, relativeSTD, nil
 }

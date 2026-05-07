@@ -20,3 +20,6 @@ uv.lock
 .vscode
 pyproject.toml
 tmux.sh
+
+manuscript/
+*_history/
