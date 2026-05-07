@@ -535,6 +535,15 @@ func (svc *service) updateResultsHandler(ctx context.Context, msg map[string]any
 		t.CPUTimeMS = &cpuTimeMS
 	}
 
+	// Estimate the energy consumed using the power model parameters and the CPU time
+	if t.CPUTimeMS != nil {
+		p, err := svc.GetProplet(ctx, t.PropletID)
+		if err != nil {
+			return err
+		}
+		t.EnergyConsumed = (p.PowerModelU + p.PowerModelC) * *t.CPUTimeMS
+	}
+
 	if err := svc.tasksDB.Update(ctx, t.ID, t); err != nil {
 		return err
 	}

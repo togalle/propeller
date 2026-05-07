@@ -48,6 +48,7 @@ type Task struct {
 	PropletID         string                     `json:"proplet_id,omitempty"`
 	Results           any                        `json:"results,omitempty"`
 	CPUTimeMS         *float64                   `json:"cpu_time_ms,omitempty"`
+	EnergyConsumed    float64                    `json:"energy_consumed,omitempty"`
 	Error             string                     `json:"error,omitempty"`
 	MonitoringProfile *proplet.MonitoringProfile `json:"monitoring_profile,omitempty"`
 	StartTime         time.Time                  `json:"start_time"`
