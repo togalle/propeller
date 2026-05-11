@@ -103,7 +103,6 @@ func (c *staticScheduler) SelectProplet(t task.Task, proplets []proplet.Proplet)
 	for _, p := range aliveProplets {
 		var score float64
 		for metric, weight := range weights {
-			fmt.Println("score for", metric, " is ", scores[p.ID][metric])
 			score += scores[p.ID][metric] * weight
 		}
 		if score > bestScore {
