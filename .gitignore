@@ -22,5 +22,10 @@ pyproject.toml
 tmux.sh
 
 manuscript/
+extended_abstract/
 *_history/
 logbook.md
+
+benchmark-results/
+benchmark-results-backup/
+data/
